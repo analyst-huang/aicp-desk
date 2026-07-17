@@ -233,3 +233,22 @@ test("first personal save-image requires a KCR password before mutation", async 
   }), /KCR/);
   assert.equal(calls.includes("SaveNotebookImage"), false);
 });
+
+test("native delete mutations receive notebook IDs and queue-job requests", async () => {
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      if (operation === "BatchDeleteNotebook") return { BatchDeleteNotebook: { Results: [{ NotebookId: "kaic-dev", Return: true }] } };
+      if (operation === "BatchDeleteQueueJobs") return { BatchDeleteQueueJobs: { Results: [{ JobName: "kaic-job", Return: true }] } };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  });
+  const api = new AicpApi(browser, { region: "region-1" });
+  await api.deleteNotebooks(["kaic-dev"]);
+  await api.deleteTrainJobs([{ TrainJobId: "kaic-job", ResourcePoolId: "pool" }]);
+  assert.deepEqual(calls[0].variables, { Region: "region-1", NotebookIds: ["kaic-dev"] });
+  assert.deepEqual(calls[1].variables, { Region: "region-1", DeleteQueueJobRequests: [{ JobName: "kaic-job", ResourcePoolId: "pool" }] });
+});

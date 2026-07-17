@@ -61,6 +61,8 @@ test("developer rows always expose separate start and stop controls", () => {
   assert.match(script, /data-dev-action="stop"/);
   assert.match(script, /const canStart =/);
   assert.match(script, /const canStop =/);
+  assert.match(script, /data-dev-action="delete"/);
+  assert.match(script, /运行中的开发机需先停止/);
 });
 
 test("first template selection never parses an empty advanced JSON value", () => {
@@ -106,6 +108,27 @@ test("training creation uses live native selectors and remains template-editable
 test("training rows expose separate start and stop controls", () => {
   assert.match(script, /data-train-action="start"/);
   assert.match(script, /data-train-action="stop"/);
+  assert.match(script, /data-train-action="delete"/);
+});
+
+test("training detail drawer prominently exposes task and role commands", () => {
+  assert.match(html, /id="train-detail-modal"/);
+  assert.match(html, /id="train-detail-content"/);
+  assert.match(script, /data-train-detail/);
+  assert.match(script, /EntryPointCommand/);
+  assert.match(script, /role\.RunCommand/);
+  assert.match(script, /data-copy-train-command/);
+  assert.match(server, /\/api\/train\/detail/);
+  assert.match(styles, /#train-detail-modal \{ inset: 0 0 0 auto;/);
+});
+
+test("resource pages refresh in the background every ten seconds", () => {
+  assert.match(html, /id="auto-refresh-status"/);
+  assert.match(script, /const AUTO_REFRESH_MS = 10_000/);
+  assert.match(script, /setInterval\(\(\) => refreshActiveResourcePage\(\{ background: true \}\), AUTO_REFRESH_MS\)/);
+  assert.match(script, /if \(state\.devLoading\) return/);
+  assert.match(script, /if \(state\.trainLoading\) return/);
+  assert.match(script, /visibilitychange/);
 });
 
 test("developer fixed-node selector refreshes against current resource filters", () => {

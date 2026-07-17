@@ -9,6 +9,8 @@ function makeService(overrides = {}) {
     listTrainJobs: async () => ({ TrainJobSet: [] }),
     startTrainJobs: async () => ({ Results: [{ JobName: "job", Return: true }] }),
     stopTrainJobs: async () => ({ Results: [{ JobName: "job", Return: true }] }),
+    deleteNotebooks: async () => ({ Results: [{ NotebookId: "kaic-dev", Return: true }] }),
+    deleteTrainJobs: async () => ({ Results: [{ JobName: "kaic-job", Return: true }] }),
     ...overrides,
   };
   const templates = {
@@ -109,6 +111,46 @@ test("batch operations require an explicit platform result", () => {
   const service = makeService();
   assert.throws(() => service.assertBatchSuccess(undefined), /未返回任务操作结果/);
   assert.throws(() => service.assertBatchSuccess([]), /未返回任务操作结果/);
+});
+
+test("developer deletion requires a terminal state and validates the native result", async () => {
+  let deletions = 0;
+  const running = makeService({
+    listNotebooks: async () => ({ Notebooks: [{ NotebookId: "kaic-dev", Name: "dev", State: "running" }] }),
+    deleteNotebooks: async () => { deletions += 1; },
+  });
+  await assert.rejects(() => running.deleteDeveloper("dev"), /请先停止开发机/);
+  const stopped = makeService({
+    listNotebooks: async () => ({ Notebooks: [{ NotebookId: "kaic-dev", Name: "dev", State: "stopped" }] }),
+    deleteNotebooks: async (ids) => { deletions += 1; return { Results: [{ NotebookId: ids[0], Return: true }] }; },
+  });
+  assert.equal((await stopped.deleteDeveloper("dev")).item.NotebookId, "kaic-dev");
+  assert.equal(deletions, 1);
+});
+
+test("training deletion requires a terminal state", async () => {
+  let deletions = 0;
+  const active = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", ResourcePoolId: "pool", JobStatus: { Status: "running" } }] }),
+    deleteTrainJobs: async () => { deletions += 1; },
+  });
+  await assert.rejects(() => active.deleteTraining("job"), /请先停止任务/);
+  const failed = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", ResourcePoolId: "pool", JobStatus: { Status: "failed" } }] }),
+    deleteTrainJobs: async (jobs) => { deletions += 1; return { Results: [{ JobName: jobs[0].TrainJobId, Return: true }] }; },
+  });
+  assert.equal((await failed.deleteTraining("job")).item.TrainJobId, "kaic-job");
+  assert.equal(deletions, 1);
+});
+
+test("training detail returns task-level and role commands", async () => {
+  const service = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", JobStatus: { Status: "succeed" } }] }),
+    trainJobDetail: async () => ({ TrainJobId: "kaic-job", EntryPointCommand: "ray start", Roles: [{ RoleName: "Master", RunCommand: "python train.py" }] }),
+  });
+  const payload = await service.trainingDetail("job");
+  assert.equal(payload.detail.EntryPointCommand, "ray start");
+  assert.equal(payload.detail.Roles[0].RunCommand, "python train.py");
 });
 
 test("saving a developer image is allowed only while running", async () => {

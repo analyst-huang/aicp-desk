@@ -23,7 +23,14 @@ const state = {
   saveImageNamespaces: [],
   saveImageRepositories: [],
   saveImageRequest: 0,
+  trainDetailCommands: [],
+  trainDetailRequest: 0,
+  devLoading: false,
+  trainLoading: false,
+  autoRefreshTimer: null,
 };
+
+const AUTO_REFRESH_MS = 10_000;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -140,17 +147,27 @@ function tableLoading(target, columns) {
   target.innerHTML = `<tr>${Array.from({ length: columns }, () => '<td><div class="skeleton"></div></td>').join("")}</tr>`;
 }
 
-async function loadDev() {
+function markResourceRefresh() {
+  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
+  $("#auto-refresh-status").textContent = `每 10 秒自动刷新 · 最近 ${time}`;
+}
+
+async function loadDev({ background = false } = {}) {
+  if (state.devLoading) return;
+  state.devLoading = true;
   const table = $("#dev-table");
   if (!state.session.profileExists) {
     state.dev = [];
     $("#dev-count").textContent = "登录后加载";
     $("#dev-metrics").innerHTML = metric("开发机总数", "—") + metric("运行 / 启动中", "—") + metric("GPU 配额视图", "—") + metric("配置 CPU 合计", "—");
     table.innerHTML = '<tr><td colspan="6" class="empty">请先点击右上角“登录 / 更新会话”</td></tr>';
+    state.devLoading = false;
     return;
   }
-  $("#dev-metrics").innerHTML = metric("开发机总数", "…") + metric("运行 / 启动中", "…") + metric("GPU 配额视图", "…") + metric("配置 CPU 合计", "…");
-  tableLoading(table, 6);
+  if (!background) {
+    $("#dev-metrics").innerHTML = metric("开发机总数", "…") + metric("运行 / 启动中", "…") + metric("GPU 配额视图", "…") + metric("配置 CPU 合计", "…");
+    tableLoading(table, 6);
+  }
   try {
     const mine = $("#dev-mine").checked ? "1" : "0";
     const payload = await api(`/api/dev?mine=${mine}`);
@@ -162,12 +179,14 @@ async function loadDev() {
     $("#dev-metrics").innerHTML = metric("开发机总数", state.dev.length, "台") + metric("运行 / 启动中", running, "台") + metric("GPU 配额视图", gpu, "卡") + metric("配置 CPU 合计", cpu, "核");
     if (!state.dev.length) {
       table.innerHTML = '<tr><td colspan="6" class="empty">没有找到开发机</td></tr>';
+      markResourceRefresh();
       return;
     }
     table.innerHTML = state.dev.map((item) => {
       const developerState = String(item.State).toLowerCase();
       const canStop = ["running", "starting", "pending", "deploying"].includes(developerState);
       const canStart = ["stopped", "failed", "succeed"].includes(developerState);
+      const canDelete = ["stopped", "failed", "succeed"].includes(developerState);
       const compute = item.GPUNumber ? `${item.GPUNumber} × ${item.GPUType}` : "CPU only";
       const canCopyPublicSsh = item.EnableSsh && item.EnablePublicNetworkSsh && item.ExternalIp;
       const canSaveImage = developerState === "running";
@@ -175,26 +194,34 @@ async function loadDev() {
         <td class="name-cell"><strong>${escapeHtml(item.Name)}</strong><small>${escapeHtml(item.NotebookId)}</small></td>
         <td>${statusPill(item.State)}</td><td>${escapeHtml(compute)}</td>
         <td>${escapeHtml(item.CpuNum)} 核 / ${escapeHtml(item.Memory)} GiB</td><td>${escapeHtml(item.QueueName || "-")}</td>
-        <td><div class="actions"><button class="link-action" data-dev-action="start" data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}" ${canStart ? "" : "disabled"}>启动</button><button class="link-action stop" data-dev-action="stop" data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}" ${canStop ? "" : "disabled"}>停止</button><button class="link-action" data-save-dev-image data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}" data-resource-pool-type="${escapeHtml(item.ResourcePoolType || "")}" ${canSaveImage ? "" : "disabled"}>保存镜像</button>${canCopyPublicSsh ? `<button class="link-action" data-copy-ssh data-external-ip="${escapeHtml(item.ExternalIp)}" data-ssh-port="${escapeHtml(item.SshPort || 22)}">复制 SSH</button>` : ""}<button class="link-action" data-save-resource="dev" data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}">存为模板</button></div></td>
+        <td><div class="actions"><button class="link-action" data-dev-action="start" data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}" ${canStart ? "" : "disabled"}>启动</button><button class="link-action stop" data-dev-action="stop" data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}" ${canStop ? "" : "disabled"}>停止</button><button class="link-action" data-save-dev-image data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}" data-resource-pool-type="${escapeHtml(item.ResourcePoolType || "")}" ${canSaveImage ? "" : "disabled"}>保存镜像</button>${canCopyPublicSsh ? `<button class="link-action" data-copy-ssh data-external-ip="${escapeHtml(item.ExternalIp)}" data-ssh-port="${escapeHtml(item.SshPort || 22)}">复制 SSH</button>` : ""}<button class="link-action" data-save-resource="dev" data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}">存为模板</button><button class="link-action danger" data-dev-action="delete" data-id="${escapeHtml(item.NotebookId)}" data-name="${escapeHtml(item.Name)}" ${canDelete ? "" : "disabled"} title="运行中的开发机需先停止">删除</button></div></td>
       </tr>`;
     }).join("");
+    markResourceRefresh();
   } catch (error) {
-    table.innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(error.message)}</td></tr>`;
-    toast(error.message, "error");
+    if (!background) table.innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(error.message)}</td></tr>`;
+    if (!background) toast(error.message, "error");
+  } finally {
+    state.devLoading = false;
   }
 }
 
-async function loadTrain() {
+async function loadTrain({ background = false } = {}) {
+  if (state.trainLoading) return;
+  state.trainLoading = true;
   const table = $("#train-table");
   if (!state.session.profileExists) {
     state.train = [];
     $("#train-count").textContent = "登录后加载";
     $("#train-metrics").innerHTML = metric("当前结果", "—") + metric("活动任务", "—") + metric("成功", "—") + metric("失败", "—");
     table.innerHTML = '<tr><td colspan="7" class="empty">请先点击右上角“登录 / 更新会话”</td></tr>';
+    state.trainLoading = false;
     return;
   }
-  $("#train-metrics").innerHTML = metric("当前结果", "…") + metric("活动任务", "…") + metric("成功", "…") + metric("失败", "…");
-  tableLoading(table, 7);
+  if (!background) {
+    $("#train-metrics").innerHTML = metric("当前结果", "…") + metric("活动任务", "…") + metric("成功", "…") + metric("失败", "…");
+    tableLoading(table, 7);
+  }
   try {
     const params = new URLSearchParams({
       mine: $("#train-mine").checked ? "1" : "0",
@@ -211,41 +238,119 @@ async function loadTrain() {
     $("#train-metrics").innerHTML = metric("当前结果", state.train.length, "条") + metric("活动任务", active, "条") + metric("成功", success, "条") + metric("失败", failed, "条");
     if (!state.train.length) {
       table.innerHTML = '<tr><td colspan="7" class="empty">没有找到训练任务</td></tr>';
+      markResourceRefresh();
       return;
     }
     table.innerHTML = state.train.map((item) => {
       const status = String(item.JobStatus?.Status || "").toLowerCase();
       const canStop = activeStates.has(status);
       const canStart = ["stopped", "failed", "succeed"].includes(status);
+      const canDelete = ["stopped", "failed", "succeed"].includes(status);
       const resource = item.Roles?.[0]?.ResourceConfig || {};
       const compute = resource.GPUNumber ? `${resource.GPUNumber} × ${resource.GPUType}` : "CPU";
       return `<tr>
         <td class="name-cell"><strong>${escapeHtml(item.TrainJobName)}</strong><small>${escapeHtml(item.TrainJobId)}</small></td>
         <td>${statusPill(status)}</td><td>${escapeHtml(item.Framework || "-")}</td><td>${escapeHtml(compute)}</td><td>${escapeHtml(item.QueueName || "-")}</td><td>${escapeHtml(item.JobStatus?.SubmitTime || "-")}</td>
-        <td><div class="actions"><button class="link-action" data-train-action="start" data-id="${escapeHtml(item.TrainJobId)}" data-name="${escapeHtml(item.TrainJobName)}" ${canStart ? "" : "disabled"}>启动</button><button class="link-action stop" data-train-action="stop" data-id="${escapeHtml(item.TrainJobId)}" data-name="${escapeHtml(item.TrainJobName)}" ${canStop ? "" : "disabled"}>停止</button><button class="link-action" data-save-resource="train" data-id="${escapeHtml(item.TrainJobId)}" data-name="${escapeHtml(item.TrainJobName)}">存为模板</button></div></td>
+        <td><div class="actions"><button class="link-action" data-train-detail data-id="${escapeHtml(item.TrainJobId)}" data-name="${escapeHtml(item.TrainJobName)}">详情</button><button class="link-action" data-train-action="start" data-id="${escapeHtml(item.TrainJobId)}" data-name="${escapeHtml(item.TrainJobName)}" ${canStart ? "" : "disabled"}>启动</button><button class="link-action stop" data-train-action="stop" data-id="${escapeHtml(item.TrainJobId)}" data-name="${escapeHtml(item.TrainJobName)}" ${canStop ? "" : "disabled"}>停止</button><button class="link-action" data-save-resource="train" data-id="${escapeHtml(item.TrainJobId)}" data-name="${escapeHtml(item.TrainJobName)}">存为模板</button><button class="link-action danger" data-train-action="delete" data-id="${escapeHtml(item.TrainJobId)}" data-name="${escapeHtml(item.TrainJobName)}" ${canDelete ? "" : "disabled"} title="活动中的训练任务需先停止">删除</button></div></td>
       </tr>`;
     }).join("");
+    markResourceRefresh();
   } catch (error) {
-    table.innerHTML = `<tr><td colspan="7" class="empty">${escapeHtml(error.message)}</td></tr>`;
-    toast(error.message, "error");
+    if (!background) table.innerHTML = `<tr><td colspan="7" class="empty">${escapeHtml(error.message)}</td></tr>`;
+    if (!background) toast(error.message, "error");
+  } finally {
+    state.trainLoading = false;
   }
 }
 
+async function refreshActiveResourcePage({ background = false } = {}) {
+  if (document.hidden || !state.session.profileExists) return;
+  if (state.page === "dev") await loadDev({ background });
+  if (state.page === "train") await loadTrain({ background });
+  if (!background && state.page === "templates") await loadTemplates();
+  if (!background && state.page === "settings") await refreshSession();
+}
+
+function startAutoRefresh() {
+  if (state.autoRefreshTimer) clearInterval(state.autoRefreshTimer);
+  state.autoRefreshTimer = setInterval(() => refreshActiveResourcePage({ background: true }), AUTO_REFRESH_MS);
+}
+
 async function performResourceAction(kind, action, selector, name, button) {
-  const verb = action === "start" ? "启动" : "停止";
-  if (!window.confirm(`确认${verb}${kind === "dev" ? "开发机" : "训练任务"}“${name}”吗？`)) return;
+  const verb = { start: "启动", stop: "停止", delete: "永久删除" }[action];
+  const resourceLabel = kind === "dev" ? "开发机" : "训练任务";
+  const warning = action === "delete" ? "此操作无法撤销，且不会删除已挂载存储中的数据。" : "";
+  if (!window.confirm(`确认${verb}${resourceLabel}“${name}”吗？${warning}`)) return;
+  if (action === "delete") {
+    const typed = window.prompt(`为避免误删，请输入${resourceLabel}名称：${name}`);
+    if (typed !== name) return toast("名称不匹配，已取消删除", "error");
+  }
   setBusy(button, true);
   try {
     const result = await api(`/api/${kind}/action`, {
       method: "POST",
       body: JSON.stringify({ selector, action }),
     });
-    toast(result.noop ? result.message : `${verb}请求已提交`, result.noop ? "success" : "success");
+    toast(result.noop ? result.message : action === "delete" ? `${resourceLabel}已删除` : `${verb}请求已提交`, "success");
     if (kind === "dev") await loadDev(); else await loadTrain();
   } catch (error) {
     toast(error.message, "error");
   } finally {
     setBusy(button, false);
+  }
+}
+
+function trainCommandBlocks(detail) {
+  const commands = [];
+  if (detail.EntryPointCommand) commands.push({ label: "任务入口命令", command: detail.EntryPointCommand });
+  for (const role of detail.Roles ?? []) {
+    if (role.RunCommand) commands.push({ label: `角色 ${role.RoleName || "未命名"}`, command: role.RunCommand });
+  }
+  return commands;
+}
+
+function renderTrainDetail(payload) {
+  const { item, detail } = payload;
+  const status = item.JobStatus?.Status || "unknown";
+  const commands = trainCommandBlocks(detail);
+  state.trainDetailCommands = commands.map((entry) => entry.command);
+  const commandHtml = commands.length
+    ? commands.map((entry, index) => `<section class="command-card"><header><strong>${escapeHtml(entry.label)}</strong><button type="button" class="button ghost small" data-copy-train-command="${index}">复制命令</button></header><pre><code>${escapeHtml(entry.command)}</code></pre></section>`).join("")
+    : '<div class="detail-empty">没有配置显式命令，任务可能使用镜像的默认启动命令。</div>';
+  const roleRows = (detail.Roles ?? []).map((role) => {
+    const resource = role.ResourceConfig ?? {};
+    const compute = resource.GPUNumber ? `${resource.GPUNumber} × ${resource.GPUType}` : "CPU";
+    const image = role.ImageConfig ?? {};
+    return `<tr><td>${escapeHtml(role.RoleName || "-")}</td><td>${escapeHtml(role.Replicas ?? 1)}</td><td>${escapeHtml(compute)}</td><td>${escapeHtml(resource.CPUNum ?? "-")} 核 / ${escapeHtml(resource.Memory ?? "-")} GiB</td><td>${escapeHtml(image.ImageName || image.ImageRepoName || image.ImageId || "-")}</td></tr>`;
+  }).join("");
+  const storageRows = (detail.StorageConfigs ?? []).map((storage) => `<li><strong>${escapeHtml(storage.StorageConfigName || storage.StorageConfigId || "-")}</strong><span>${escapeHtml(storage.MountPath || "-")} · ${escapeHtml(storage.MountProtocol || storage.Type || "-")}</span></li>`).join("");
+  $("#train-detail-title").textContent = detail.TrainJobName || item.TrainJobName;
+  $("#train-detail-subtitle").textContent = detail.TrainJobId || item.TrainJobId;
+  $("#train-detail-content").innerHTML = `
+    <div class="detail-summary">
+      <div><span>状态</span>${statusPill(status)}</div><div><span>框架</span><strong>${escapeHtml(detail.Framework || "-")}</strong></div><div><span>队列</span><strong>${escapeHtml(detail.QueueName || "-")}</strong></div><div><span>资源组</span><strong>${escapeHtml(detail.ResourcePoolName || "-")}</strong></div>
+    </div>
+    <section class="detail-section command-section"><div class="detail-section-head"><div><h3>运行命令</h3><p>任务级入口命令与每个角色实际配置的启动命令</p></div></div>${commandHtml}</section>
+    <section class="detail-section"><div class="detail-section-head"><div><h3>基本信息</h3></div></div><dl class="detail-list"><div><dt>描述</dt><dd>${escapeHtml(detail.Description || "-")}</dd></div><div><dt>优先级</dt><dd>${escapeHtml(detail.Priority || "-")}</dd></div><div><dt>运行环境</dt><dd>${escapeHtml(detail.RuntimeEnv || "-")}</dd></div><div><dt>最长运行</dt><dd>${escapeHtml(detail.MaxRuntimeHour ?? "-")} 小时</dd></div><div><dt>提交时间</dt><dd>${escapeHtml(item.JobStatus?.SubmitTime || "-")}</dd></div><div><dt>开始时间</dt><dd>${escapeHtml(item.JobStatus?.StartTime || "-")}</dd></div></dl></section>
+    <section class="detail-section"><div class="detail-section-head"><div><h3>角色与算力</h3></div></div><div class="detail-table-wrap"><table class="detail-table"><thead><tr><th>角色</th><th>副本</th><th>GPU</th><th>CPU / 内存</th><th>镜像</th></tr></thead><tbody>${roleRows || '<tr><td colspan="5">暂无角色信息</td></tr>'}</tbody></table></div></section>
+    <section class="detail-section"><div class="detail-section-head"><div><h3>挂载配置</h3></div></div>${storageRows ? `<ul class="detail-storage">${storageRows}</ul>` : '<div class="detail-empty">未配置挂载存储</div>'}</section>
+  `;
+}
+
+async function openTrainDetail(selector, name) {
+  const request = ++state.trainDetailRequest;
+  state.trainDetailCommands = [];
+  $("#train-detail-title").textContent = name || "训练任务详情";
+  $("#train-detail-subtitle").textContent = selector;
+  $("#train-detail-content").innerHTML = '<div class="create-loading">正在读取训练任务详情与运行命令……</div>';
+  $("#train-detail-modal").showModal();
+  try {
+    const payload = await api(`/api/train/detail?selector=${encodeURIComponent(selector)}`);
+    if (request !== state.trainDetailRequest) return;
+    renderTrainDetail(payload);
+  } catch (error) {
+    if (request !== state.trainDetailRequest) return;
+    $("#train-detail-content").innerHTML = `<div class="create-loading error">${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -1404,6 +1509,7 @@ async function bootstrap() {
   fillSettings();
   renderTemplates();
   setPage("dev");
+  startAutoRefresh();
 }
 
 document.addEventListener("click", async (event) => {
@@ -1440,6 +1546,16 @@ document.addEventListener("click", async (event) => {
   }
   const trainAction = event.target.closest("[data-train-action]");
   if (trainAction) return performResourceAction("train", trainAction.dataset.trainAction, trainAction.dataset.id, trainAction.dataset.name, trainAction);
+  const trainDetail = event.target.closest("[data-train-detail]");
+  if (trainDetail) return openTrainDetail(trainDetail.dataset.id, trainDetail.dataset.name);
+  const copyTrainCommand = event.target.closest("[data-copy-train-command]");
+  if (copyTrainCommand) {
+    const command = state.trainDetailCommands[Number(copyTrainCommand.dataset.copyTrainCommand)];
+    if (command === undefined) return;
+    try { await copyText(command); toast("运行命令已复制"); }
+    catch (error) { toast(`复制失败：${error.message}`, "error"); }
+    return;
+  }
   const saveResource = event.target.closest("[data-save-resource]");
   if (saveResource) {
     const name = window.prompt("模板名称", `${saveResource.dataset.name}-template`);
@@ -1453,7 +1569,10 @@ document.addEventListener("click", async (event) => {
   if (remove) return deleteTemplate(remove.dataset.kind, remove.dataset.deleteTemplate);
 });
 
-$("#refresh-button").addEventListener("click", () => setPage(state.page));
+$("#refresh-button").addEventListener("click", () => refreshActiveResourcePage());
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshActiveResourcePage({ background: true });
+});
 $("#login-button").addEventListener("click", (event) => login(event.currentTarget));
 $("#settings-login").addEventListener("click", (event) => login(event.currentTarget));
 $("#logout-button").addEventListener("click", async () => {

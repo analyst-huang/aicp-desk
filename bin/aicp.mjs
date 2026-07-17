@@ -27,6 +27,7 @@ AICP 本地控制工具
                   [--set PATH=VALUE ...] [--dry-run] [--yes]
   aicp dev start NAME_OR_ID [--yes]
   aicp dev stop NAME_OR_ID [--force] [--yes]
+  aicp dev delete NAME_OR_ID [--yes]
 
 训练任务
   aicp train list [--mine] [--status running,stopped] [--json]
@@ -35,6 +36,8 @@ AICP 本地控制工具
                     [--set PATH=VALUE ...] [--dry-run] [--yes]
   aicp train start NAME_OR_ID [--latest] [--yes]
   aicp train stop NAME_OR_ID [--latest] [--yes]
+  aicp train delete NAME_OR_ID [--latest] [--yes]
+  aicp train detail NAME_OR_ID [--latest] [--json]
 
 模板
   aicp template list [--json]
@@ -120,13 +123,16 @@ async function handleDev(context, action, args) {
   }
 
   const selector = positionals[0];
-  if (!["start", "stop"].includes(action) || !selector) throw new Error(`未知开发机命令：${action || "（空）"}`);
+  if (!["start", "stop", "delete"].includes(action) || !selector) throw new Error(`未知开发机命令：${action || "（空）"}`);
   const item = await context.service.resolveDeveloper(selector, { region: options.region });
-  const approved = await confirmAction(`确认${action === "start" ? "启动" : "停止"}开发机 ${item.Name}？`, { yes: Boolean(options.yes) });
+  const verb = { start: "启动", stop: "停止", delete: "永久删除" }[action];
+  const approved = await confirmAction(`确认${verb}开发机 ${item.Name}？`, { yes: Boolean(options.yes) });
   if (!approved) return print("已取消");
   const result = action === "start"
     ? await context.service.startDeveloper(item.NotebookId, { region: options.region })
-    : await context.service.stopDeveloper(item.NotebookId, { region: options.region, force: Boolean(options.force) });
+    : action === "stop"
+      ? await context.service.stopDeveloper(item.NotebookId, { region: options.region, force: Boolean(options.force) })
+      : await context.service.deleteDeveloper(item.NotebookId, { region: options.region });
   return print(result, true);
 }
 
@@ -183,14 +189,37 @@ async function handleTrain(context, action, args) {
   }
 
   const selector = positionals[0];
-  if (!["start", "stop"].includes(action) || !selector) throw new Error(`未知训练命令：${action || "（空）"}`);
+  if (action === "detail" && selector) {
+    const payload = await context.service.trainingDetail(selector, { latest: Boolean(options.latest), region: options.region });
+    if (options.json) return print(redact(payload), true);
+    const detail = payload.detail;
+    const commands = [];
+    if (detail.EntryPointCommand) commands.push({ label: "任务入口命令", value: detail.EntryPointCommand });
+    for (const role of detail.Roles ?? []) {
+      if (role.RunCommand) commands.push({ label: `角色 ${role.RoleName || "未命名"}`, value: role.RunCommand });
+    }
+    const lines = [
+      `名称: ${detail.TrainJobName}`,
+      `ID: ${detail.TrainJobId}`,
+      `框架: ${detail.Framework || "-"}`,
+      `队列: ${detail.QueueName || "-"}`,
+      "",
+      "运行命令:",
+      ...(commands.length ? commands.flatMap((command) => [`[${command.label}]`, command.value, ""]) : ["未配置显式命令（可能使用镜像默认启动命令）"]),
+    ];
+    return print(lines.join("\n"));
+  }
+  if (!["start", "stop", "delete"].includes(action) || !selector) throw new Error(`未知训练命令：${action || "（空）"}`);
   const resolveOptions = { latest: Boolean(options.latest), region: options.region };
   const item = await context.service.resolveTraining(selector, resolveOptions);
-  const approved = await confirmAction(`确认${action === "start" ? "启动" : "停止"}训练任务 ${item.TrainJobName}？`, { yes: Boolean(options.yes) });
+  const verb = { start: "启动", stop: "停止", delete: "永久删除" }[action];
+  const approved = await confirmAction(`确认${verb}训练任务 ${item.TrainJobName}？`, { yes: Boolean(options.yes) });
   if (!approved) return print("已取消");
   const result = action === "start"
     ? await context.service.startTraining(item.TrainJobId, resolveOptions)
-    : await context.service.stopTraining(item.TrainJobId, resolveOptions);
+    : action === "stop"
+      ? await context.service.stopTraining(item.TrainJobId, resolveOptions)
+      : await context.service.deleteTraining(item.TrainJobId, resolveOptions);
   return print(result, true);
 }
 

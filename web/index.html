@@ -35,6 +35,7 @@
           <h1 id="page-title">开发机</h1>
         </div>
         <div class="top-actions">
+          <span class="auto-refresh-status" id="auto-refresh-status">每 10 秒自动刷新</span>
           <span class="session-badge" id="session-badge"><i></i>检查会话</span>
           <button class="button ghost" id="refresh-button">刷新</button>
           <button class="button primary" id="login-button">登录 / 更新会话</button>
@@ -251,6 +252,14 @@
       </div>
       <div class="modal-footer"><span>镜像制作可能需要较长时间</span><button type="button" class="button ghost" data-close-modal="save-image-modal">取消</button><button type="submit" class="button primary" id="submit-save-image" value="default">开始保存</button></div>
     </form>
+  </dialog>
+
+  <dialog class="modal" id="train-detail-modal">
+    <section class="modal-card train-detail-card">
+      <div class="modal-head"><div><p class="eyebrow">Training detail</p><h2 id="train-detail-title">训练任务详情</h2><p class="modal-subtitle" id="train-detail-subtitle"></p></div><button type="button" class="icon-button" data-close-modal="train-detail-modal" aria-label="关闭">×</button></div>
+      <div class="modal-body train-detail-body" id="train-detail-content"><div class="create-loading">正在读取训练任务详情与运行命令……</div></div>
+      <div class="modal-footer"><span>详情来自金山云当前任务配置</span><button type="button" class="button ghost" data-close-modal="train-detail-modal">关闭</button></div>
+    </section>
   </dialog>
 
   <dialog class="modal" id="template-modal">

@@ -11,10 +11,12 @@ test("all GraphQL documents have an operation declaration", () => {
 test("write operations use the expected platform operation names", () => {
   assert.match(operations.CREATE_NOTEBOOK, /mutation CreateNotebook/);
   assert.match(operations.MODIFY_NOTEBOOK_STATUS, /mutation ModifyNotebookStatus/);
+  assert.match(operations.BATCH_DELETE_NOTEBOOKS, /mutation BatchDeleteNotebook/);
   assert.match(operations.SAVE_NOTEBOOK_IMAGE, /mutation SaveNotebookImage/);
   assert.match(operations.CREATE_TRAIN_JOB, /mutation CreateTrainJob/);
   assert.match(operations.BATCH_START_TRAIN_JOBS, /mutation BatchStartQueueJobs/);
   assert.match(operations.BATCH_STOP_TRAIN_JOBS, /mutation BatchStopQueueJobs/);
+  assert.match(operations.BATCH_DELETE_TRAIN_JOBS, /mutation BatchDeleteQueueJobs/);
 });
 
 test("developer creation option queries match the current platform operations", () => {
