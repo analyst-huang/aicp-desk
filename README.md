@@ -46,7 +46,7 @@ node --version
 先下载 Release 压缩包并解压，或克隆仓库：
 
 ```bash
-git clone <你的仓库地址>
+git clone https://github.com/analyst-huang/aicp-desk.git
 cd aicp-desk
 ```
 
@@ -449,7 +449,7 @@ macOS/Linux，只删除程序并保留模板和登录资料：
 本项目没有运行时 npm 依赖：
 
 ```bash
-git clone <仓库地址>
+git clone https://github.com/analyst-huang/aicp-desk.git
 cd aicp-desk
 npm test
 npm run gui
