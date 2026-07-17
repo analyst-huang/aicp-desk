@@ -1,0 +1,235 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { AicpApi } from "../lib/api.mjs";
+
+function withLease(browser) {
+  browser.withBrowser = async (callback) => {
+    const { spawned } = await browser.launchHeadless();
+    try { return await callback(); }
+    finally { if (spawned) await browser.closeActiveBrowser(); }
+  };
+  return browser;
+}
+
+test("developer create options combine live platform selectors without mutations", async () => {
+  let closed = 0;
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => { closed += 1; },
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool", ResourcePoolName: "Pool" }] } };
+      if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "queue", ResourcePoolId: "pool" }] } };
+      if (operation === "DescribeAicpImages") return { DescribeAicpImages: { ImageSet: [{ ImageId: `${variables.ImageSource}-image` }] } };
+      if (operation === "DataSetList") return { DataSetList: { StorageConfigSet: [{ StorageConfigId: variables.Type }] } };
+      if (operation === "DescribeImageRegistry") return { DescribeImageRegistry: { ImageRegistryInfo: [] } };
+      if (operation === "DescribleNoUseAddress") return { DescribleNoUseAddress: { AddressesSet: [{ AllocationId: "allocation-id", PublicIp: "203.0.113.1" }] } };
+      if (operation === "QueryPublicNetworkCondition") return { QueryPublicNetworkCondition: { IsAllow: true } };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  });
+  const api = new AicpApi(browser, { region: "region-1" });
+  const options = await api.developerCreateOptions();
+  assert.equal(options.resourcePools.length, 1);
+  assert.equal(options.queues[0].Name, "queue");
+  assert.equal(options.images.official[0].ImageId, "Official-image");
+  assert.equal(options.images.personal[0].ImageId, "Personal-image");
+  assert.equal(options.storageConfigs.length, 2);
+  assert.equal(options.publicNetworkByPool.pool, true);
+  assert.equal(options.availableAddresses[0].PublicIp, "203.0.113.1");
+  assert.equal(closed, 1);
+  assert.equal(calls.some((call) => call.operation.startsWith("Create")), false);
+});
+
+test("developer create converts a legacy public IP to its Allocation ID before mutation", async () => {
+  const calls = [];
+  let closed = 0;
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => { closed += 1; },
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool" }] } };
+      if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "queue" }] } };
+      if (operation === "DescribleNoUseAddress") {
+        return { DescribleNoUseAddress: { AddressesSet: [{ AllocationId: "allocation-id", PublicIp: "203.0.113.1" }] } };
+      }
+      if (operation === "CreateNotebook") return { CreateNotebook: { NotebookId: "kaic-new" } };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  });
+  const api = new AicpApi(browser, { region: "region-1" });
+  const result = await api.createNotebook({
+    DisplayName: "dev",
+    ResourcePoolId: "pool",
+    QueueName: "queue",
+    ImageSource: 0,
+    ImageUrl: "legacy-image",
+    AllocationId: "203.0.113.1",
+    EnablePublicNetworkSsh: true,
+    StorageConfigs: [],
+    ServiceConfigs: [],
+  });
+  assert.equal(result.NotebookId, "kaic-new");
+  assert.equal(calls.find((call) => call.operation === "CreateNotebook").variables.AllocationId, "allocation-id");
+  assert.equal(closed, 1);
+});
+
+test("developer create rejects an unavailable EIP before mutation", async () => {
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation) => {
+      if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool" }] } };
+      if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "queue" }] } };
+      if (operation === "DescribleNoUseAddress") return { DescribleNoUseAddress: { AddressesSet: [] } };
+      throw new Error("mutation must not run");
+    },
+  });
+  const api = new AicpApi(browser, { region: "region-1" });
+  await assert.rejects(() => api.createNotebook({
+    ResourcePoolId: "pool",
+    QueueName: "queue",
+    ImageSource: 0,
+    ImageUrl: "legacy-image",
+    AllocationId: "203.0.113.1",
+    EnablePublicNetworkSsh: true,
+    StorageConfigs: [],
+    ServiceConfigs: [],
+  }), /当前不可用于创建/);
+});
+
+test("developer create rejects an unavailable fixed node before mutation", async () => {
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation) => {
+      calls.push(operation);
+      if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool" }] } };
+      if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "queue" }] } };
+      if (operation === "DescribeInstancesByResource") return { DescribeInstancesByResource: { InstanceIps: [{ InstanceIp: "10.0.0.2" }] } };
+      if (operation === "CreateNotebook") throw new Error("mutation must not run");
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  });
+  const api = new AicpApi(browser, { region: "region-1" });
+  await assert.rejects(() => api.createNotebook({
+    ResourcePoolId: "pool",
+    QueueName: "queue",
+    ImageSource: 0,
+    ImageUrl: "legacy-image",
+    CpuNum: 8,
+    Memory: 16,
+    ServiceConfigs: [],
+    StorageConfigs: [],
+    NodeAffinity: { RequiredNodeIp: "10.0.0.1" },
+  }), /当前不能满足/);
+  assert.equal(calls.includes("CreateNotebook"), false);
+});
+
+test("training create options use training queues and training official images", async () => {
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool" }] } };
+      if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "train-queue", ResourcePoolId: "pool" }] } };
+      if (operation === "DescribeAicpImages") return { DescribeAicpImages: { ImageSet: [{ ImageId: `${variables.ImageSource}-image` }] } };
+      if (operation === "DataSetList") return { DataSetList: { StorageConfigSet: [] } };
+      if (operation === "DescribeImageRegistry") return { DescribeImageRegistry: { ImageRegistryInfo: [] } };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  });
+  const options = await new AicpApi(browser, { region: "region-1" }).trainingCreateOptions();
+  assert.equal(options.queues[0].Name, "train-queue");
+  assert.equal(calls.find((call) => call.operation === "DescribeClusterQueue").variables.WorkloadType, "trainjob");
+  assert.equal(calls.find((call) => call.operation === "DescribeAicpImages" && call.variables.ImageSource === "Official").variables.ApplicationScenario, "训练任务");
+});
+
+test("training create rejects a stale image before mutation", async () => {
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation, _query, variables) => {
+      calls.push(operation);
+      if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool" }] } };
+      if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Name: "queue" }] } };
+      if (operation === "DescribeAicpImages") return { DescribeAicpImages: { ImageSet: [{ ImageId: "current" }] } };
+      if (operation === "CreateTrainJob") throw new Error("mutation must not run");
+      throw new Error(`unexpected operation ${operation} ${JSON.stringify(variables)}`);
+    },
+  });
+  const api = new AicpApi(browser, { region: "region-1" });
+  await assert.rejects(() => api.createTrainJob({
+    ResourcePoolId: "pool",
+    QueueName: "queue",
+    Roles: [{ RoleName: "Master", ImageConfig: { ImageSource: "Personal", ImageId: "stale" } }],
+    StorageConfigs: [],
+  }), /镜像当前不可用/);
+  assert.equal(calls.includes("CreateTrainJob"), false);
+});
+
+test("save-image options accept the native single image-config object", async () => {
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation) => {
+      if (operation === "GetImageConfig") return { GetImageConfig: { TotalCount: 1, ImageServiceInfo: { Id: "config", Deleted: false } } };
+      if (operation === "DescribePersonalNamespaces") return { DescribePersonalNamespaces: { data: [{ Namespace: "team", Public: false, InternalEndpoint: "10.0.0.1" }] } };
+      if (operation === "DescribeKcrInstances") return { DescribeKcrInstances: { data: [] } };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  });
+  const options = await new AicpApi(browser, { region: "region-1" }).saveImageOptions();
+  assert.equal(options.personalConfigured, true);
+  assert.equal(options.personalNamespaces[0].Namespace, "team");
+  assert.deepEqual(options.officialInstances, []);
+});
+
+test("personal save-image derives native namespace fields and discards an obsolete password", async () => {
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      if (operation === "GetImageConfig") return { GetImageConfig: { ImageServiceInfo: { Id: "config", Deleted: false } } };
+      if (operation === "DescribePersonalNamespaces") return { DescribePersonalNamespaces: { data: [{ Namespace: "team", Public: false, InternalEndpoint: "10.0.0.1" }] } };
+      if (operation === "SaveNotebookImage") return { SaveNotebookImage: { ImageId: "image-1" } };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  });
+  const result = await new AicpApi(browser, { region: "region-1" }).saveNotebookImage("kaic-dev", {
+    ImageName: "snapshot", ImageType: "Personal", Namespace: "team", ImageRepo: "repo", ImageVersion: "v1", Password: "obsolete",
+  });
+  const mutation = calls.find((call) => call.operation === "SaveNotebookImage");
+  assert.equal(result.ImageId, "image-1");
+  assert.equal(mutation.variables.ImageDomain, "10.0.0.1");
+  assert.equal(mutation.variables.NamespacePermission, "Private");
+  assert.equal(mutation.variables.ImagePermission, "Public");
+  assert.equal("Password" in mutation.variables, false);
+});
+
+test("first personal save-image requires a KCR password before mutation", async () => {
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation) => {
+      calls.push(operation);
+      if (operation === "GetImageConfig") return { GetImageConfig: { TotalCount: 0, ImageServiceInfo: null } };
+      if (operation === "DescribePersonalNamespaces") return { DescribePersonalNamespaces: { data: [{ Namespace: "team", Public: true, InternalEndpoint: "10.0.0.1" }] } };
+      throw new Error("mutation must not run");
+    },
+  });
+  const api = new AicpApi(browser, { region: "region-1" });
+  await assert.rejects(() => api.saveNotebookImage("kaic-dev", {
+    ImageName: "snapshot", ImageType: "Personal", Namespace: "team", ImageRepo: "repo", ImageVersion: "v1",
+  }), /KCR/);
+  assert.equal(calls.includes("SaveNotebookImage"), false);
+});

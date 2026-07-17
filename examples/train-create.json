@@ -1,0 +1,49 @@
+{
+  "Region": "cn-northwest-3",
+  "TrainJobName": "my-new-experiment",
+  "Description": "通过 AICP Desk 创建",
+  "ResourcePoolId": "替换为资源组ID",
+  "Priority": "kaic-normal",
+  "QueueName": "替换为队列名称",
+  "Framework": "pytorch",
+  "AccessType": "Creator",
+  "SelfHealing": false,
+  "UseIdleResource": false,
+  "MaxRuntimeHour": 720,
+  "HoldingTimeMinutes": 0,
+  "JobRunOnCPU": false,
+  "SupportTensorboard": false,
+  "StorageConfigs": [
+    {
+      "StorageConfigId": "替换为存储配置ID",
+      "MountType": "DataSet",
+      "MountPath": "/share/data",
+      "MountProtocol": "NFS"
+    }
+  ],
+  "Roles": [
+    {
+      "RoleName": "Master",
+      "Replicas": 1,
+      "ImageConfig": {
+        "ImageId": "替换为镜像ID",
+        "ImageSource": "Personal"
+      },
+      "ResourceConfig": {
+        "GPUType": "GM302",
+        "GPUNumber": 4,
+        "CPUNum": 54,
+        "Memory": 950
+      },
+      "RunCommand": "python train.py",
+      "RestartPolicy": "Never",
+      "Envs": [],
+      "IsChiefRole": false
+    }
+  ],
+  "EnableDeviceHealthCheck": false,
+  "NodeAffinity": {
+    "RunOnCPU": false,
+    "RunOnGPU": false
+  }
+}

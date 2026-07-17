@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AICP Desk</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div>
+          <strong>AICP Desk</strong>
+          <span>本地算力控制台</span>
+        </div>
+      </div>
+      <nav class="nav" aria-label="主导航">
+        <button class="nav-item active" data-page="dev"><span>⌁</span>开发机</button>
+        <button class="nav-item" data-page="train"><span>◇</span>训练任务</button>
+        <button class="nav-item" data-page="templates"><span>▦</span>模板库</button>
+        <button class="nav-item" data-page="settings"><span>⚙</span>设置</button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="pulse"></span>
+        <div><strong>仅在本机运行</strong><small>127.0.0.1 · 会话不上传</small></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">星流训推平台</p>
+          <h1 id="page-title">开发机</h1>
+        </div>
+        <div class="top-actions">
+          <span class="session-badge" id="session-badge"><i></i>检查会话</span>
+          <button class="button ghost" id="refresh-button">刷新</button>
+          <button class="button primary" id="login-button">登录 / 更新会话</button>
+        </div>
+      </header>
+
+      <section class="page active" id="page-dev">
+        <div class="hero compact">
+          <div>
+            <span class="hero-kicker">Development workspace</span>
+            <h2>开发环境，一眼掌控</h2>
+            <p>创建、启动或停止开发机。已有配置可以保存成模板，下次只改名称。</p>
+          </div>
+          <button class="button accent" data-open-create="dev">＋ 新建开发机</button>
+        </div>
+        <div class="metric-row" id="dev-metrics"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <div><h3>开发机列表</h3><p id="dev-count">尚未加载</p></div>
+            <label class="switch-label"><input type="checkbox" id="dev-mine"><span></span>只看我创建的</label>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>名称</th><th>状态</th><th>算力</th><th>CPU / 内存</th><th>队列</th><th>操作</th></tr></thead><tbody id="dev-table"></tbody></table></div>
+        </div>
+      </section>
+
+      <section class="page" id="page-train">
+        <div class="hero train-hero">
+          <div>
+            <span class="hero-kicker">Training orchestration</span>
+            <h2>把实验配置变成可复用资产</h2>
+            <p>从模板创建训练任务，按需调整命令、GPU 和任意高级参数。</p>
+          </div>
+          <button class="button accent" data-open-create="train">＋ 新建训练任务</button>
+        </div>
+        <div class="metric-row" id="train-metrics"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <div><h3>训练任务</h3><p id="train-count">尚未加载</p></div>
+            <div class="filter-row">
+              <select id="train-status" aria-label="训练状态"><option value="">全部状态</option><option value="running,pending,deploying">活动中</option><option value="succeed">成功</option><option value="failed">失败</option><option value="stopped">已停止</option></select>
+              <label class="switch-label"><input type="checkbox" id="train-mine"><span></span>只看我创建的</label>
+            </div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>任务名称</th><th>状态</th><th>框架</th><th>算力</th><th>队列</th><th>提交时间</th><th>操作</th></tr></thead><tbody id="train-table"></tbody></table></div>
+        </div>
+      </section>
+
+      <section class="page" id="page-templates">
+        <div class="page-heading">
+          <div><p class="eyebrow">Reusable configurations</p><h2>模板库</h2><p>模板保存在这台电脑上。可从已有开发机或训练任务生成，也可直接编辑完整参数。</p></div>
+          <button class="button accent" id="new-template-button">＋ 新建 JSON 模板</button>
+        </div>
+        <div class="template-source panel">
+          <div><h3>从现有资源生成模板</h3><p>填写资源名称或 ID，系统读取其当前配置并保存。</p></div>
+          <div class="source-form">
+            <select id="source-kind"><option value="dev">开发机</option><option value="train">训练任务</option></select>
+            <input id="source-selector" placeholder="资源名称或 ID">
+            <input id="source-template-name" placeholder="新模板名称">
+            <label class="checkbox"><input type="checkbox" id="source-latest">同名时取最新</label>
+            <button class="button primary" id="save-from-resource">保存模板</button>
+          </div>
+        </div>
+        <div class="template-grid" id="template-grid"></div>
+      </section>
+
+      <section class="page" id="page-settings">
+        <div class="page-heading"><div><p class="eyebrow">Local preferences</p><h2>设置</h2><p>AICP Desk 不读取密码；选择记住密码后，由 Edge 密码管理器保存，并受当前操作系统账户保护。</p></div></div>
+        <div class="settings-grid">
+          <form class="panel settings-card" id="config-form">
+            <div class="settings-icon">⌘</div><h3>平台配置</h3>
+            <label>区域代码<input id="config-region" name="region" required></label>
+            <label>IAM 用户名<input id="config-username" name="username" placeholder="用于“只看我创建的”"></label>
+            <label>可视化端口<input id="config-gui-port" name="guiPort" type="number"></label>
+            <button class="button primary" type="submit">保存设置</button>
+          </form>
+          <div class="panel settings-card">
+            <div class="settings-icon warm">◎</div><h3>登录会话</h3>
+            <p id="session-detail">正在检查本地会话……</p>
+            <p class="hint">首次登录时接受 Edge 的“保存密码”提示；以后重新登录通常只需输入新的手机验证码。</p>
+            <div class="stack-actions"><button class="button primary" id="settings-login">打开安全登录窗口</button><button class="button ghost" id="logout-button">清除会话（保留密码）</button><button class="button danger ghost" id="forget-login-button">忘记所有登录资料</button></div>
+          </div>
+          <div class="panel settings-card wide">
+            <div class="settings-icon cool">{ }</div><h3>Agent 与命令行</h3>
+            <p>可视化版与命令行共用同一套模板和登录态。复制下面的命令即可启动。</p>
+            <code>aicp gui</code>
+            <code>aicp dev list --json</code>
+            <code>aicp train create --template NAME --name NEW --yes</code>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="modal" id="create-modal">
+    <form method="dialog" class="modal-card" id="create-form">
+      <div class="modal-head"><div><p class="eyebrow" id="create-kind-label">Create</p><h2 id="create-title">新建资源</h2></div><button type="button" class="icon-button" data-close-modal="create-modal" aria-label="关闭">×</button></div>
+      <div class="modal-body">
+        <div class="create-template-bar">
+          <label>从模板开始<select id="create-template"><option value="">不使用模板</option></select><small>载入后仍可修改任意配置</small></label>
+          <button type="button" class="button ghost" id="save-create-template">将当前配置另存为模板</button>
+          <label>任务名称<input id="create-name" required placeholder="请输入唯一名称"></label>
+        </div>
+        <div id="dev-quick-fields" class="native-create-form">
+          <div class="create-loading" id="dev-options-status">正在加载金山云创建选项……</div>
+
+          <section class="create-section">
+            <div class="create-section-head"><div><span>01</span><h3>基本信息</h3></div><p>与金山云“新建开发任务”一致</p></div>
+            <label>任务描述<textarea id="dev-description" rows="3" maxlength="200" placeholder="请输入任务描述"></textarea></label>
+          </section>
+
+          <section class="create-section">
+            <div class="create-section-head"><div><span>02</span><h3>环境配置</h3></div><button type="button" class="link-action" id="refresh-dev-options">刷新选项</button></div>
+            <div class="field-label">镜像类型</div>
+            <div class="choice-row" id="dev-image-source">
+              <label class="choice-card"><input type="radio" name="dev-image-source" value="0" checked><span><strong>官方镜像</strong><small>平台维护的标准环境</small></span></label>
+              <label class="choice-card"><input type="radio" name="dev-image-source" value="1"><span><strong>自定义镜像</strong><small>个人与共享镜像</small></span></label>
+              <label class="choice-card"><input type="radio" name="dev-image-source" value="2"><span><strong>第三方镜像</strong><small>镜像仓库、仓库与版本</small></span></label>
+            </div>
+            <div id="dev-aicp-image-fields">
+              <div class="form-grid two"><label>搜索镜像<input id="dev-image-search" placeholder="按名称、框架、CUDA 或版本筛选"></label><label>镜像<select id="dev-image-select"><option value="">请选择镜像</option></select></label></div>
+              <div class="selection-detail" id="dev-image-detail">尚未选择镜像</div>
+            </div>
+            <div class="form-grid three hidden" id="dev-third-image-fields"><label>镜像配置<select id="dev-image-registry"><option value="">请选择镜像配置</option></select></label><label>镜像仓库<select id="dev-image-repo"><option value="">请先选择镜像配置</option></select></label><label>镜像版本<select id="dev-image-tag"><option value="">请先选择镜像仓库</option></select></label></div>
+            <div class="toggle-panel"><label class="checkbox strong"><input type="checkbox" id="dev-autosave" checked> 开启自动保存镜像</label><p>开发机停止前保存环境，供同一任务下次恢复。大文件建议保存在挂载存储中。</p>
+              <div class="form-grid three" id="dev-autosave-config"><label>镜像实例类型<select id="dev-autosave-type"><option value="Personal">个人版实例</option><option value="Official">企业版实例</option></select></label><div id="dev-autosave-official" class="subgrid hidden"><label>企业实例 ID<input id="dev-autosave-instance"></label><label>仓库用户名<input id="dev-autosave-username"></label><label>仓库密码<input id="dev-autosave-password" type="password" autocomplete="off"></label></div></div>
+            </div>
+            <div class="repeater-head"><div><strong>环境变量</strong><small>以键值对写入容器环境</small></div><button type="button" class="button ghost small" data-add-row="env">＋ 添加变量</button></div>
+            <div class="repeater" id="dev-env-rows"></div>
+          </section>
+
+          <section class="create-section">
+            <div class="create-section-head"><div><span>03</span><h3>资源配置</h3></div><p>资源选项来自当前区域</p></div>
+            <div class="form-grid two"><label>资源组<select id="dev-resource-pool"><option value="">请选择资源组</option></select></label><label>队列<select id="dev-queue"><option value="">请先选择资源组</option></select></label></div>
+            <div class="form-grid four"><label>GPU 类型<select id="dev-gpu-type"><option value="">不使用 GPU</option></select></label><label>GPU 卡数<input id="dev-gpu-number" type="number" min="0" step="1" value="0"></label><label>CPU 核数<input id="dev-cpu" type="number" min="1" step="1" value="8"></label><label>内存 (GiB)<input id="dev-memory" type="number" min="1" step="1" value="16"></label></div>
+            <div class="resource-hint" id="dev-resource-hint">选择队列后显示可用资源与推荐规格</div>
+            <details class="subsection"><summary>更多配置 · 节点亲和性</summary><div class="form-grid three"><label class="checkbox"><input type="checkbox" id="dev-affinity-cpu"> 仅调度 CPU 节点</label><label class="checkbox"><input type="checkbox" id="dev-affinity-gpu"> 仅调度 GPU 节点</label><label>指定节点<select id="dev-affinity-ip"><option value="">不指定节点</option></select><small id="dev-affinity-status">按当前队列和资源规格实时加载</small></label></div></details>
+          </section>
+
+          <section class="create-section">
+            <div class="create-section-head"><div><span>04</span><h3>挂载配置</h3></div><p>最多 20 项</p></div>
+            <div class="repeater-head"><div><strong>存储配置</strong><small>选择 KPFS / KS3，并可修改本次挂载路径</small></div><button type="button" class="button ghost small" data-add-row="storage">＋ 添加存储配置</button></div>
+            <div class="repeater" id="dev-storage-rows"></div>
+          </section>
+
+          <section class="create-section">
+            <div class="create-section-head"><div><span>05</span><h3>访问配置</h3></div><p id="dev-public-network-status">选择资源组后检查公网能力</p></div>
+            <div class="toggle-panel"><label class="checkbox strong"><input type="checkbox" id="dev-enable-ssh"> 开启 SSH</label>
+              <div id="dev-ssh-fields" class="hidden"><div class="form-grid two"><label>SSH 端口<input id="dev-ssh-port" type="number" min="1" max="65535" value="22"></label><label class="checkbox"><input type="checkbox" id="dev-public-ssh"> 同时开放公网 SSH</label></div><label>SSH 公钥<textarea id="dev-ssh-keys" rows="3" placeholder="ssh-ed25519 / ssh-rsa ..."></textarea></label></div>
+            </div>
+            <div class="repeater-head"><div><strong>自定义服务</strong><small>配置服务名、端口和公网访问</small></div><button type="button" class="button ghost small" data-add-row="service">＋ 添加自定义服务</button></div>
+            <div class="repeater" id="dev-service-rows"></div>
+            <div class="form-grid two hidden" id="dev-eip-fields"><label>公网 EIP<select id="dev-allocation-id"><option value="">请先加载可用公网 EIP</option></select><small>界面显示公网 IP，提交时会自动使用金山云要求的 Allocation ID</small></label></div>
+          </section>
+
+          <section class="create-section">
+            <div class="create-section-head"><div><span>06</span><h3>权限配置</h3></div></div>
+            <label class="choice-card inline"><input type="checkbox" id="dev-queue-share"><span><strong>开启队列内共享</strong><small>队列成员可以查看和使用此开发任务</small></span></label>
+          </section>
+        </div>
+        <div id="train-quick-fields" class="quick-fields hidden">
+          <div class="create-loading" id="train-options-status">打开创建页后加载金山云训练选项</div>
+          <section class="create-section">
+            <div class="create-section-head"><div><span>01</span><h3>调度与任务</h3></div><button type="button" class="link-action" id="refresh-train-options">刷新选项</button></div>
+            <div class="form-grid four"><label>资源组<select id="train-resource-pool"><option value="">请选择资源组</option></select></label><label>训练队列<select id="train-queue"><option value="">请先选择资源组</option></select></label><label>框架<select id="train-framework"><option value="pytorch">PyTorch</option><option value="tensorflow">TensorFlow</option><option value="ray">Ray</option><option value="custom">自定义</option></select></label><label>优先级<select id="train-priority"><option value="kaic-high">高优先级</option><option value="kaic-normal">中优先级</option><option value="kaic-low">低优先级</option></select></label><label>角色名称<input id="train-role-name" value="Master"></label><label>副本数<input id="train-replicas" type="number" min="1" value="1"></label><label class="checkbox strong"><input type="checkbox" id="train-job-cpu"> 按 CPU 任务提交</label><label class="checkbox strong"><input type="checkbox" id="train-queue-share"> 队列内共享</label></div>
+          </section>
+          <section class="create-section">
+            <div class="create-section-head"><div><span>02</span><h3>运行镜像</h3></div></div>
+            <div class="form-grid two"><label>镜像类型<select id="train-image-source"><option value="Official">官方镜像</option><option value="Personal">自定义镜像</option><option value="ThirdParty">第三方镜像</option></select></label><label id="train-aicp-image-field">镜像<select id="train-image-select"><option value="">请选择镜像</option></select></label></div>
+            <div class="selection-detail" id="train-image-detail">尚未选择镜像</div>
+            <div class="form-grid three hidden" id="train-third-image-fields"><label>镜像配置<select id="train-image-registry"><option value="">请选择镜像配置</option></select></label><label>镜像仓库<select id="train-image-repo"><option value="">请先选择镜像配置</option></select></label><label>镜像版本<select id="train-image-tag"><option value="">请先选择镜像仓库</option></select></label></div>
+          </section>
+          <section class="create-section">
+            <div class="create-section-head"><div><span>03</span><h3>算力配置</h3></div></div>
+            <div class="form-grid four"><label>GPU 型号<select id="train-gpu-type"><option value="">不使用 GPU</option></select></label><label>GPU 数量<input id="train-gpu-number" type="number" min="0" value="0"></label><label>CPU（核）<input id="train-cpu" type="number" min="1" value="8"></label><label>内存（GiB）<input id="train-memory" type="number" min="1" value="16"></label></div>
+          </section>
+          <section class="create-section">
+            <div class="create-section-head"><div><span>04</span><h3>挂载配置</h3></div><button type="button" class="button ghost small" data-add-row="train-storage">＋ 添加挂载</button></div>
+            <div class="repeater" id="train-storage-rows"><div class="repeater-empty">暂未配置挂载</div></div>
+          </section>
+          <section class="create-section"><div class="create-section-head"><div><span>05</span><h3>启动命令</h3></div></div><label class="command-field"><span id="train-command-label">运行命令</span><textarea id="train-command" rows="7" spellcheck="false"></textarea></label></section>
+        </div>
+        <details class="advanced"><summary>高级参数 · 完整 JSON</summary><p>表单会实时同步到这里；未展示的高级字段仍可直接编辑。</p><textarea id="create-json" rows="18" spellcheck="false"></textarea></details>
+      </div>
+      <div class="modal-footer"><span id="create-validation">参数尚未检查</span><button type="button" class="button ghost" data-close-modal="create-modal">取消</button><button type="submit" class="button primary" id="submit-create" value="default">检查并创建</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="save-image-modal">
+    <form method="dialog" class="modal-card save-image-card" id="save-image-form">
+      <div class="modal-head"><div><p class="eyebrow">Notebook image</p><h2>保存开发机镜像</h2></div><button type="button" class="icon-button" data-close-modal="save-image-modal" aria-label="关闭">×</button></div>
+      <div class="modal-body">
+        <p class="save-image-intro">为开发任务（<strong id="save-image-dev-name"></strong>）创建并保存镜像。制作完成后会自动推送至 KCR 指定仓库，并同步至平台镜像管理。</p>
+        <div class="warning-panel">镜像保存过程中请勿写入数据，否则可能导致保存失败或镜像不可用。</div>
+        <div class="create-loading" id="save-image-options-status">正在读取镜像服务配置……</div>
+        <label>镜像名称<input id="save-image-name" maxlength="64" required placeholder="1-64 个字符"></label>
+        <label>描述<textarea id="save-image-description" rows="3"></textarea></label>
+        <div class="field-label">镜像类型</div>
+        <div class="choice-row" id="save-image-type-choices">
+          <label class="choice-card"><input type="radio" name="save-image-type" value="Personal" checked><span><strong>个人版实例</strong><small>使用当前账号的个人 KCR</small></span></label>
+          <label class="choice-card"><input type="radio" name="save-image-type" value="Official"><span><strong>企业版实例</strong><small>使用已有企业版 KCR 实例</small></span></label>
+        </div>
+        <div id="save-image-official-instance-fields" class="hidden"><div class="warning-panel subtle">请确保已创建当前 VPC 下的内网访问链路，否则可能导致镜像上传失败。</div><label>镜像实例<select id="save-image-instance"><option value="">请选择镜像实例</option></select></label></div>
+        <label>命名空间<select id="save-image-namespace" required><option value="">请选择命名空间</option></select></label>
+        <label>镜像仓库<input id="save-image-repo" list="save-image-repo-list" required placeholder="选择或填写；个人版中不存在的仓库会自动新建"><datalist id="save-image-repo-list"></datalist></label>
+        <label>镜像版本<input id="save-image-version" value="latest" required placeholder="不可与已有镜像版本重复"></label>
+        <div class="selection-detail" id="save-image-endpoint-detail">选择命名空间后自动确定权限与内网上传地址</div>
+        <label class="hidden" id="save-image-kcr-password-field">KCR 密码<input id="save-image-password" type="password" autocomplete="new-password"><small>仅首次使用个人版镜像服务时需要</small></label>
+        <div class="form-grid two hidden" id="save-image-official-credential-fields"><label>用户名<input id="save-image-username"></label><label>访问凭证<input id="save-image-official-password" type="password" autocomplete="new-password"></label></div>
+        <div class="field-label">可见性</div>
+        <div class="choice-row compact" id="save-image-permission-choices">
+          <label class="choice-card"><input type="radio" name="save-image-permission" value="Public" checked><span><strong>公开可见</strong><small>主账号及其子账号均可查看使用</small></span></label>
+          <label class="choice-card"><input type="radio" name="save-image-permission" value="Private"><span><strong>仅自己可见</strong><small>只有当前账号可以查看使用</small></span></label>
+        </div>
+      </div>
+      <div class="modal-footer"><span>镜像制作可能需要较长时间</span><button type="button" class="button ghost" data-close-modal="save-image-modal">取消</button><button type="submit" class="button primary" id="submit-save-image" value="default">开始保存</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="template-modal">
+    <form method="dialog" class="modal-card small" id="template-form">
+      <div class="modal-head"><div><p class="eyebrow">Template editor</p><h2>编辑模板</h2></div><button type="button" class="icon-button" data-close-modal="template-modal" aria-label="关闭">×</button></div>
+      <div class="modal-body"><div class="form-grid two"><label>类型<select id="template-kind"><option value="dev">开发机</option><option value="train">训练任务</option></select></label><label>模板名称<input id="template-name" required></label></div><label>完整参数 JSON<textarea id="template-json" rows="22" spellcheck="false"></textarea></label></div>
+      <div class="modal-footer"><span>模板仅保存在本机</span><button type="button" class="button ghost" data-close-modal="template-modal">取消</button><button type="submit" class="button primary" id="save-template-button" value="default">保存模板</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

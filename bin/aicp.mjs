@@ -1,0 +1,281 @@
+#!/usr/bin/env node
+import process from "node:process";
+import { createContext } from "../lib/context.mjs";
+import { loadConfig, setConfigValue } from "../lib/config.mjs";
+import {
+  confirmAction,
+  formatTable,
+  jsonOutput,
+  optionList,
+  parseArgs,
+  redact,
+} from "../lib/utils.mjs";
+
+const HELP = `
+AICP 本地控制工具
+
+登录与界面
+  aicp login [--yes]                   打开独立 Edge，手动完成 MFA
+  aicp logout [--yes]                  清除会话，保留 Edge 已保存的账号密码
+  aicp logout --forget [--yes]         删除全部登录资料（包括已保存密码）
+  aicp session                         查看会话状态
+  aicp gui [--no-open] [--port 17863]  启动可视化控制台
+
+开发机
+  aicp dev list [--mine] [--json]
+  aicp dev create (--file FILE | --template NAME) [--name NAME]
+                  [--set PATH=VALUE ...] [--dry-run] [--yes]
+  aicp dev start NAME_OR_ID [--yes]
+  aicp dev stop NAME_OR_ID [--force] [--yes]
+
+训练任务
+  aicp train list [--mine] [--status running,stopped] [--json]
+  aicp train create (--file FILE | --template NAME) [--name NAME]
+                    [--command TEXT | --command-file FILE]
+                    [--set PATH=VALUE ...] [--dry-run] [--yes]
+  aicp train start NAME_OR_ID [--latest] [--yes]
+  aicp train stop NAME_OR_ID [--latest] [--yes]
+
+模板
+  aicp template list [--json]
+  aicp template show <dev|train> NAME [--show-sensitive]
+  aicp template save <dev|train> NAME --from NAME_OR_ID [--latest]
+  aicp template import <dev|train> NAME FILE
+  aicp template delete <dev|train> NAME [--yes]
+
+配置
+  aicp config show
+  aicp config set <region|username|debugPort|guiPort|edgePath|apiEndpoint|consoleUrl> VALUE
+
+参数覆盖示例
+  --set GPUNumber=2
+  --set Roles[0].ResourceConfig.GPUNumber=8
+  --set Roles[0].RunCommand=@run.sh
+  --set Envs='[{"Name":"MODE","Value":"test"}]'
+
+创建命令接受完整 GraphQL variables JSON；--set 可以覆盖任意嵌套字段。
+`;
+
+function csv(value) {
+  return optionList(value).flatMap((item) => String(item).split(",")).filter(Boolean);
+}
+
+function print(value, json = false) {
+  process.stdout.write(json ? jsonOutput(value) : `${value}\n`);
+}
+
+async function handleConfig(positionals) {
+  const [action, key, value] = positionals;
+  if (!action || action === "show") {
+    print(await loadConfig(), true);
+    return;
+  }
+  if (action !== "set" || !key || value === undefined) throw new Error("用法：aicp config set <key> <value>");
+  print(await setConfigValue(key, value), true);
+}
+
+async function handleDev(context, action, args) {
+  const { positionals, options } = parseArgs(args);
+  if (action === "list") {
+    const response = await context.service.listDevelopers({
+      mine: Boolean(options.mine),
+      state: options.state,
+      limit: options.limit,
+      region: options.region,
+    });
+    if (options.json) return print(response, true);
+    const rows = (response.Notebooks ?? []).map((item) => ({
+      name: item.Name,
+      state: item.State,
+      gpu: item.GPUNumber ? `${item.GPUNumber}×${item.GPUType}` : "CPU",
+      cpu: item.CpuNum,
+      memory: item.Memory,
+      queue: item.QueueName,
+      id: item.NotebookId,
+    }));
+    return print(formatTable(rows, [
+      { key: "name", label: "名称" },
+      { key: "state", label: "状态" },
+      { key: "gpu", label: "GPU" },
+      { key: "cpu", label: "CPU" },
+      { key: "memory", label: "内存" },
+      { key: "queue", label: "队列" },
+      { key: "id", label: "ID" },
+    ]));
+  }
+
+  if (action === "create") {
+    const variables = await context.service.prepareCreateVariables("dev", {
+      file: options.file,
+      template: options.template,
+      name: options.name,
+      region: options.region,
+      set: options.set,
+    });
+    if (options["dry-run"]) return print(redact(variables, { showSensitive: options["show-sensitive"] }), true);
+    const approved = await confirmAction(`确认创建开发机 ${variables.DisplayName}？`, { yes: Boolean(options.yes) });
+    if (!approved) return print("已取消");
+    const result = await context.api.createNotebook(variables);
+    return print({ result, variables: redact(variables) }, true);
+  }
+
+  const selector = positionals[0];
+  if (!["start", "stop"].includes(action) || !selector) throw new Error(`未知开发机命令：${action || "（空）"}`);
+  const item = await context.service.resolveDeveloper(selector, { region: options.region });
+  const approved = await confirmAction(`确认${action === "start" ? "启动" : "停止"}开发机 ${item.Name}？`, { yes: Boolean(options.yes) });
+  if (!approved) return print("已取消");
+  const result = action === "start"
+    ? await context.service.startDeveloper(item.NotebookId, { region: options.region })
+    : await context.service.stopDeveloper(item.NotebookId, { region: options.region, force: Boolean(options.force) });
+  return print(result, true);
+}
+
+async function handleTrain(context, action, args) {
+  const { positionals, options } = parseArgs(args);
+  if (action === "list") {
+    const response = await context.service.listTraining({
+      mine: Boolean(options.mine),
+      statuses: csv(options.status),
+      frameworks: csv(options.framework),
+      priorities: csv(options.priority),
+      limit: options.limit,
+      region: options.region,
+    });
+    if (options.json) return print(response, true);
+    const rows = (response.TrainJobSet ?? []).map((item) => {
+      const resource = item.Roles?.[0]?.ResourceConfig ?? {};
+      return {
+        name: item.TrainJobName,
+        state: item.JobStatus?.Status,
+        framework: item.Framework,
+        gpu: resource.GPUNumber ? `${resource.GPUNumber}×${resource.GPUType}` : "CPU",
+        queue: item.QueueName,
+        submitted: item.JobStatus?.SubmitTime,
+        id: item.TrainJobId,
+      };
+    });
+    return print(formatTable(rows, [
+      { key: "name", label: "名称" },
+      { key: "state", label: "状态" },
+      { key: "framework", label: "框架" },
+      { key: "gpu", label: "GPU" },
+      { key: "queue", label: "队列" },
+      { key: "submitted", label: "提交时间" },
+      { key: "id", label: "ID" },
+    ]));
+  }
+
+  if (action === "create") {
+    const variables = await context.service.prepareCreateVariables("train", {
+      file: options.file,
+      template: options.template,
+      name: options.name,
+      command: options.command,
+      commandFile: options["command-file"],
+      region: options.region,
+      set: options.set,
+    });
+    if (options["dry-run"]) return print(redact(variables, { showSensitive: options["show-sensitive"] }), true);
+    const approved = await confirmAction(`确认创建训练任务 ${variables.TrainJobName}？`, { yes: Boolean(options.yes) });
+    if (!approved) return print("已取消");
+    const result = await context.api.createTrainJob(variables);
+    return print({ result, variables: redact(variables) }, true);
+  }
+
+  const selector = positionals[0];
+  if (!["start", "stop"].includes(action) || !selector) throw new Error(`未知训练命令：${action || "（空）"}`);
+  const resolveOptions = { latest: Boolean(options.latest), region: options.region };
+  const item = await context.service.resolveTraining(selector, resolveOptions);
+  const approved = await confirmAction(`确认${action === "start" ? "启动" : "停止"}训练任务 ${item.TrainJobName}？`, { yes: Boolean(options.yes) });
+  if (!approved) return print("已取消");
+  const result = action === "start"
+    ? await context.service.startTraining(item.TrainJobId, resolveOptions)
+    : await context.service.stopTraining(item.TrainJobId, resolveOptions);
+  return print(result, true);
+}
+
+async function handleTemplate(context, action, args) {
+  const { positionals, options } = parseArgs(args);
+  if (action === "list") {
+    const records = await context.templates.list();
+    if (options.json) return print(records.map((item) => redact(item)), true);
+    const rows = records.map((item) => ({
+      kind: item.kind,
+      name: item.name,
+      source: item.source?.name || item.source?.file || "-",
+      updated: item.updatedAt || "-",
+    }));
+    return print(formatTable(rows, [
+      { key: "kind", label: "类型" },
+      { key: "name", label: "名称" },
+      { key: "source", label: "来源" },
+      { key: "updated", label: "更新时间" },
+    ]));
+  }
+  const [kind, name, extra] = positionals;
+  if (!kind || !name) throw new Error(`模板命令 ${action} 需要 <dev|train> NAME`);
+  if (action === "show") return print(redact(await context.templates.get(kind, name), { showSensitive: options["show-sensitive"] }), true);
+  if (action === "save") {
+    if (!options.from) throw new Error("template save 需要 --from NAME_OR_ID");
+    const record = await context.service.saveTemplateFromResource(kind, name, options.from, {
+      latest: Boolean(options.latest),
+      region: options.region,
+    });
+    return print(redact(record), true);
+  }
+  if (action === "import") {
+    if (!extra) throw new Error("template import 需要 JSON 文件路径");
+    return print(redact(await context.service.importTemplate(kind, name, extra)), true);
+  }
+  if (action === "delete") {
+    const approved = await confirmAction(`确认删除模板 ${kind}/${name}？`, { yes: Boolean(options.yes) });
+    if (!approved) return print("已取消");
+    return print(await context.templates.delete(kind, name), true);
+  }
+  throw new Error(`未知模板命令：${action}`);
+}
+
+async function main() {
+  const [group, action, ...rest] = process.argv.slice(2);
+  if (!group || ["help", "--help", "-h"].includes(group)) return print(HELP.trim());
+  if (Number(process.versions.node.split(".")[0]) < 22) throw new Error("需要 Node.js 22 或更高版本");
+  if (group === "config") return handleConfig([action, ...rest].filter((item) => item !== undefined));
+
+  const context = await createContext();
+  if (group === "login") {
+    const { options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
+    const approved = await confirmAction("将开启仅监听本机的独立 Edge 调试会话；继续？", { yes: Boolean(options.yes) });
+    if (!approved) return print("已取消");
+    const result = await context.browser.launchLogin();
+    print(result, true);
+    return print("请在独立 Edge 中完成 MFA；首次登录可选择让 Edge 保存密码，之后通常只需输入新的手机验证码。", false);
+  }
+  if (group === "logout") {
+    const { options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
+    const forget = Boolean(options.forget);
+    const message = forget
+      ? "确认删除全部 AICP 登录资料，包括 Edge 已保存的账号和密码？"
+      : "确认清除 AICP 登录会话？Edge 已保存的账号和密码会保留。";
+    const approved = await confirmAction(message, { yes: Boolean(options.yes) });
+    if (!approved) return print("已取消");
+    return print(await context.browser.logout({ forget }), true);
+  }
+  if (group === "session") return print(await context.browser.status(), true);
+  if (group === "dev") return handleDev(context, action, rest);
+  if (group === "train") return handleTrain(context, action, rest);
+  if (group === "template") return handleTemplate(context, action, rest);
+  if (group === "gui") {
+    const { options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
+    const { startGui } = await import("../lib/gui-server.mjs");
+    return startGui(context, {
+      port: Number(options.port || context.config.guiPort),
+      open: options.open !== false,
+    });
+  }
+  throw new Error(`未知命令：${group}\n\n${HELP}`);
+}
+
+main().catch((error) => {
+  process.stderr.write(`错误：${error.message}\n`);
+  process.exitCode = 1;
+});

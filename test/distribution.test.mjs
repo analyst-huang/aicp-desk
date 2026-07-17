@@ -1,0 +1,33 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+const read = (name) => readFile(new URL(`../${name}`, import.meta.url), "utf8");
+
+test("package exposes a portable aicp executable on Node.js 22", () => {
+  assert.equal(packageJson.bin.aicp, "./bin/aicp.mjs");
+  assert.match(packageJson.engines.node, />=22/);
+  assert.equal(packageJson.private, true);
+});
+
+test("distribution includes installers and launchers for all supported platforms", async () => {
+  const [windowsInstall, windowsUninstall, unixInstall, unixUninstall, unixLauncher] = await Promise.all([
+    read("install.ps1"), read("uninstall.ps1"), read("install.sh"), read("uninstall.sh"), read("aicp"),
+  ]);
+  assert.match(windowsInstall, /LOCALAPPDATA/);
+  assert.match(windowsInstall, /aicp\.cmd/);
+  assert.match(windowsUninstall, /KeepData/);
+  assert.match(unixInstall, /Darwin/);
+  assert.match(unixInstall, /Linux/);
+  assert.match(unixInstall, /\.local\/bin/);
+  assert.match(unixUninstall, /--keep-data/);
+  assert.match(unixLauncher, /^#!\/usr\/bin\/env sh/);
+});
+
+test("README documents Windows, macOS, Linux, GUI, and CLI workflows", async () => {
+  const readme = await read("README.md");
+  for (const phrase of ["### Windows", "### macOS", "### Linux", "## GUI 用法", "## CLI 用法", "aicp login", "aicp gui", "--dry-run"]) {
+    assert.match(readme, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});

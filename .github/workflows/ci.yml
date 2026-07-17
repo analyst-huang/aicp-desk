@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Validate Unix scripts
+        if: runner.os != 'Windows'
+        run: sh -n install.sh uninstall.sh aicp start-gui.sh test/install-smoke.sh
+      - name: Smoke-test Unix installation
+        if: runner.os != 'Windows'
+        run: sh test/install-smoke.sh
+      - name: Smoke-test Windows installation
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoShortcut
+          & "$env:LOCALAPPDATA\aicp-cli\bin\aicp.cmd" --help

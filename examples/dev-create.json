@@ -1,0 +1,23 @@
+{
+  "Region": "cn-northwest-3",
+  "DisplayName": "my-new-dev",
+  "Description": "通过 AICP Desk 创建",
+  "ImageSource": 1,
+  "ImageId": "替换为个人镜像ID",
+  "AutoSave": false,
+  "ResourcePoolId": "替换为资源组ID",
+  "QueueName": "替换为队列名称",
+  "GPUType": "GDP401",
+  "GPUNumber": 1,
+  "CpuNum": 11,
+  "Memory": 44,
+  "AccessType": "Creator",
+  "StorageConfigs": [],
+  "EnableSsh": false,
+  "ServiceConfigs": [],
+  "Envs": [],
+  "NodeAffinity": {
+    "RunOnCPU": false,
+    "RunOnGPU": false
+  }
+}
