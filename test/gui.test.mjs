@@ -128,7 +128,20 @@ test("resource pages refresh in the background every ten seconds", () => {
   assert.match(script, /setInterval\(\(\) => refreshActiveResourcePage\(\{ background: true \}\), AUTO_REFRESH_MS\)/);
   assert.match(script, /if \(state\.devLoading\) return/);
   assert.match(script, /if \(state\.trainLoading\) return/);
+  assert.match(script, /if \(state\.gpuLoading\) return/);
   assert.match(script, /visibilitychange/);
+});
+
+test("GUI exposes native resource-pool and queue GPU capacity", () => {
+  assert.match(html, /data-page="gpu"/);
+  assert.match(html, /id="page-gpu"/);
+  assert.match(html, /id="gpu-metrics"/);
+  assert.match(html, /id="gpu-pools"/);
+  assert.match(script, /async function loadGpu/);
+  assert.match(script, /queue\.remainingGpu/);
+  assert.match(script, /state\.page === "gpu"/);
+  assert.match(server, /\/api\/gpu/);
+  assert.match(styles, /\.capacity-pool/);
 });
 
 test("developer fixed-node selector refreshes against current resource filters", () => {

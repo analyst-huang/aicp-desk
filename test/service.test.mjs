@@ -11,6 +11,7 @@ function makeService(overrides = {}) {
     stopTrainJobs: async () => ({ Results: [{ JobName: "job", Return: true }] }),
     deleteNotebooks: async () => ({ Results: [{ NotebookId: "kaic-dev", Return: true }] }),
     deleteTrainJobs: async () => ({ Results: [{ JobName: "kaic-job", Return: true }] }),
+    gpuCapacity: async () => ({ region: "region-1", groups: [] }),
     ...overrides,
   };
   const templates = {
@@ -40,6 +41,30 @@ test("training duplicate names require latest", async () => {
   });
   await assert.rejects(() => service.resolveTraining("same"), /--latest/);
   assert.equal((await service.resolveTraining("same", { latest: true })).TrainJobId, "kaic-new");
+});
+
+test("GPU capacity keeps pool free cards separate from queue quota remaining", async () => {
+  const service = makeService({
+    gpuCapacity: async () => ({
+      region: "region-1",
+      groups: [{
+        pool: { ResourcePoolId: "pool", ResourcePoolName: "Pool", ResourcePoolType: "KCE" },
+        gpu: { Num: 20, FreeGpuNum: 6, AvailableGpuNum: null, AssignedGpuNum: 14, UnavailableGpuNum: 0 },
+        queues: [{
+          Id: "queue", Name: "GPU Queue", QueueType: "normal", WorkloadType: ["notebook", "trainjob"], AllowBorrowing: true,
+          GpuModels: [{ Model: "A100", Quota: 8 }, { Model: "H800", Quota: 4 }],
+          Status: { State: "normal", Allocated: { gpu: 9 }, Running: 2, Inqueue: 1 },
+        }],
+      }],
+    }),
+  });
+  const capacity = await service.gpuCapacity();
+  assert.equal(capacity.summary.freeGpu, 6);
+  assert.equal(capacity.summary.totalGpu, 20);
+  assert.equal(capacity.pools[0].queues[0].quotaGpu, 12);
+  assert.equal(capacity.pools[0].queues[0].allocatedGpu, 9);
+  assert.equal(capacity.pools[0].queues[0].remainingGpu, 3);
+  assert.equal(capacity.pools[0].queues[0].allowBorrowing, true);
 });
 
 test("prepare train variables applies nested overrides", async () => {

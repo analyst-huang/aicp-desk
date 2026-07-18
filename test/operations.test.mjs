@@ -24,6 +24,9 @@ test("developer creation option queries match the current platform operations", 
   assert.match(operations.DESCRIBE_AICP_IMAGES, /ApplicationScenario/);
   assert.match(operations.DESCRIBE_ALL_RESOURCE_POOLS, /query DescribeAllResourcePool/);
   assert.match(operations.DESCRIBE_CLUSTER_QUEUES, /query DescribeClusterQueue/);
+  assert.match(operations.DESCRIBE_CLUSTER_QUEUES, /Allocated \{ cpu memory storage gpu \}/);
+  assert.match(operations.DESCRIBE_GPU_INFO, /query DescribeGpuInfo/);
+  assert.match(operations.DESCRIBE_GPU_INFO, /FreeGpuNum/);
   assert.match(operations.DATA_SET_LIST, /query DataSetList/);
   assert.match(operations.DESCRIBE_QUEUE_RESOURCE_CONFIG, /query DescribeQueueResourceConfigInfo/);
   assert.match(operations.DESCRIBE_AVAILABLE_ADDRESSES, /query DescribleNoUseAddress/);

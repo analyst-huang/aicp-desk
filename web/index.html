@@ -19,6 +19,7 @@
       <nav class="nav" aria-label="主导航">
         <button class="nav-item active" data-page="dev"><span>⌁</span>开发机</button>
         <button class="nav-item" data-page="train"><span>◇</span>训练任务</button>
+        <button class="nav-item" data-page="gpu"><span>▥</span>GPU 容量</button>
         <button class="nav-item" data-page="templates"><span>▦</span>模板库</button>
         <button class="nav-item" data-page="settings"><span>⚙</span>设置</button>
       </nav>
@@ -81,6 +82,19 @@
           </div>
           <div class="table-wrap"><table><thead><tr><th>任务名称</th><th>状态</th><th>框架</th><th>算力</th><th>队列</th><th>提交时间</th><th>操作</th></tr></thead><tbody id="train-table"></tbody></table></div>
         </div>
+      </section>
+
+      <section class="page" id="page-gpu">
+        <div class="hero gpu-hero">
+          <div>
+            <span class="hero-kicker">Live GPU capacity</span>
+            <h2>资源组与队列 GPU，一页看清</h2>
+            <p>资源组显示物理 GPU 当前剩余量；队列显示 GPU 配额、已分配与配额剩余。数据每 10 秒只读刷新。</p>
+          </div>
+          <div class="capacity-legend"><span><i class="free"></i>资源组物理空闲</span><span><i class="quota"></i>队列配额剩余</span></div>
+        </div>
+        <div class="metric-row" id="gpu-metrics"></div>
+        <div class="capacity-pools" id="gpu-pools"><div class="panel capacity-empty">登录后加载 GPU 容量</div></div>
       </section>
 
       <section class="page" id="page-templates">

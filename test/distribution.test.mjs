@@ -31,3 +31,10 @@ test("README documents Windows, macOS, Linux, GUI, and CLI workflows", async () 
     assert.match(readme, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 });
+
+test("CLI exposes GPU capacity in human and JSON modes", async () => {
+  const cli = await read("bin/aicp.mjs");
+  assert.match(cli, /aicp gpu \[--json\]/);
+  assert.match(cli, /context\.service\.gpuCapacity/);
+  assert.match(cli, /资源组物理 GPU/);
+});

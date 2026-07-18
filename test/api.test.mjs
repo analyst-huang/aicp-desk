@@ -252,3 +252,23 @@ test("native delete mutations receive notebook IDs and queue-job requests", asyn
   assert.deepEqual(calls[0].variables, { Region: "region-1", NotebookIds: ["kaic-dev"] });
   assert.deepEqual(calls[1].variables, { Region: "region-1", DeleteQueueJobRequests: [{ JobName: "kaic-job", ResourcePoolId: "pool" }] });
 });
+
+test("GPU capacity combines native resource-pool totals with unfiltered queues", async () => {
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool", ResourcePoolName: "Pool" }] } };
+      if (operation === "DescribeGpuInfo") return { DescribeGpuInfo: { Gpu: { Num: 16, FreeGpuNum: 5, AssignedGpuNum: 11 } } };
+      if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue", Name: "gpu-queue" }] } };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  });
+  const result = await new AicpApi(browser, { region: "region-1" }).gpuCapacity();
+  assert.equal(result.groups[0].gpu.FreeGpuNum, 5);
+  assert.equal(result.groups[0].queues[0].Name, "gpu-queue");
+  const queueCall = calls.find((call) => call.operation === "DescribeClusterQueue");
+  assert.equal("WorkloadType" in queueCall.variables, false);
+});

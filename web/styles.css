@@ -68,12 +68,41 @@ h3 { font-size: 16px; margin-bottom: 6px; }
 .hero p { max-width: 620px; margin-bottom: 0; color: #dddaf7; font-size: 13px; line-height: 1.7; }
 .hero-kicker { display: block; font-size: 10px; letter-spacing: 1.8px; text-transform: uppercase; color: #c9c1ff; margin-bottom: 11px; }
 .train-hero { background: radial-gradient(circle at 80% 30%, rgba(116,201,176,.34), transparent 25%), linear-gradient(125deg, #1f2f46, #244c61 60%, #316f73); }
+.gpu-hero { background: radial-gradient(circle at 78% 24%, rgba(92,224,180,.3), transparent 24%), linear-gradient(125deg, #17283d, #21505c 58%, #277868); }
+.capacity-legend { display: grid; gap: 10px; min-width: 210px; padding: 17px 19px; border: 1px solid rgba(255,255,255,.16); border-radius: 14px; background: rgba(17,31,49,.25); backdrop-filter: blur(8px); }
+.capacity-legend span { display: flex; gap: 9px; align-items: center; color: #e9fff8; font-size: 10px; }
+.capacity-legend i { width: 9px; height: 9px; border-radius: 3px; background: #63e5b5; box-shadow: 0 0 0 4px rgba(99,229,181,.12); }
+.capacity-legend i.quota { background: #b6a8ff; box-shadow: 0 0 0 4px rgba(182,168,255,.12); }
 .metric-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0; }
 .metric { background: var(--surface); border: 1px solid var(--line); border-radius: 15px; padding: 18px 20px; box-shadow: 0 5px 20px rgba(40,34,65,.035); }
 .metric span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 8px; }
 .metric strong { font-size: 23px; letter-spacing: -.4px; }
 .metric small { color: var(--muted); margin-left: 6px; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 17px; box-shadow: 0 7px 26px rgba(39,33,63,.04); }
+.capacity-pools { display: grid; gap: 17px; }
+.capacity-empty { padding: 34px; color: var(--muted); text-align: center; font-size: 12px; }
+.capacity-empty .skeleton { width: min(380px, 70%); margin: 0 auto 14px; }
+.capacity-empty.error { color: var(--red); }
+.capacity-pool { overflow: hidden; }
+.capacity-pool-head { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 22px 24px; border-bottom: 1px solid var(--line); background: linear-gradient(120deg, #fff, #fbfffd); }
+.capacity-pool-head h3 { margin: 0; font-size: 18px; }
+.capacity-pool-head > div:first-child > small { display: block; max-width: 460px; margin-top: 7px; overflow: hidden; color: #99a0b2; font-family: Consolas, monospace; font-size: 9px; text-overflow: ellipsis; }
+.capacity-pool-total { min-width: 270px; }
+.capacity-pool-total > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; }
+.capacity-pool-total strong { display: block; color: var(--green); font-size: 25px; }
+.capacity-pool-total strong small { color: var(--muted); font-size: 12px; font-weight: 650; }
+.capacity-pool-total progress { width: 100%; height: 7px; margin-top: 8px; border: 0; border-radius: 999px; overflow: hidden; background: #e8eceb; }
+.capacity-pool-total progress::-webkit-progress-bar { background: #e8eceb; }
+.capacity-pool-total progress::-webkit-progress-value { background: linear-gradient(90deg, #31aa7b, #64d4aa); }
+.capacity-pool-total progress::-moz-progress-bar { background: linear-gradient(90deg, #31aa7b, #64d4aa); }
+.capacity-pool-total p { margin: 6px 0 0; color: var(--muted); font-size: 9px; text-align: right; }
+.capacity-models { display: flex; flex-wrap: wrap; gap: 5px; }
+.capacity-model { display: inline-flex; padding: 5px 7px; border-radius: 7px; color: var(--purple); background: var(--lavender); font-size: 9px; font-weight: 700; }
+.capacity-model.cpu { color: var(--muted); background: #f0eff4; }
+.capacity-remaining { color: var(--purple); font-size: 17px; }
+.capacity-yes { color: var(--green); font-weight: 700; }
+.borrowed { display: block; margin-top: 3px; color: var(--orange); font-size: 8px; }
+.capacity-note { margin: 0; padding: 11px 18px; border-top: 1px solid #f0eef4; color: var(--muted); background: #fcfbfe; font-size: 9px; line-height: 1.6; }
 .panel-head { padding: 21px 23px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); }
 .panel-head h3, .panel-head p { margin-bottom: 0; }
 .panel-head p { color: var(--muted); font-size: 11px; margin-top: 5px; }

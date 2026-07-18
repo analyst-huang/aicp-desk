@@ -21,6 +21,9 @@ AICP 本地控制工具
   aicp session                         查看会话状态
   aicp gui [--no-open] [--port 17863]  启动可视化控制台
 
+GPU 容量
+  aicp gpu [--json] [--region REGION]  查看资源组与队列剩余 GPU
+
 开发机
   aicp dev list [--mine] [--json]
   aicp dev create (--file FILE | --template NAME) [--name NAME]
@@ -75,6 +78,56 @@ async function handleConfig(positionals) {
   }
   if (action !== "set" || !key || value === undefined) throw new Error("用法：aicp config set <key> <value>");
   print(await setConfigValue(key, value), true);
+}
+
+async function handleGpu(context, args) {
+  const { positionals, options } = parseArgs(args);
+  if (positionals.length) throw new Error("用法：aicp gpu [--json] [--region REGION]");
+  const capacity = await context.service.gpuCapacity({ region: options.region });
+  if (options.json) return print(capacity, true);
+  const poolRows = capacity.pools.map((pool) => ({
+    name: pool.name,
+    type: pool.type || "-",
+    free: pool.freeGpu,
+    total: pool.totalGpu,
+    assigned: pool.assignedGpu,
+    unavailable: pool.unavailableGpu,
+  }));
+  const queueRows = capacity.pools.flatMap((pool) => pool.queues.map((queue) => ({
+    pool: pool.name,
+    queue: queue.name,
+    models: queue.models.length ? queue.models.map((item) => `${item.model}:${item.quotaGpu}`).join(",") : "CPU",
+    quota: queue.quotaGpu ?? "-",
+    allocated: queue.allocatedGpu ?? "-",
+    remaining: queue.remainingGpu ?? "-",
+    borrowing: queue.allowBorrowing ? "是" : "否",
+  })));
+  const lines = [
+    `区域: ${capacity.region}`,
+    `资源组物理 GPU: 剩余 ${capacity.summary.freeGpu} / 总计 ${capacity.summary.totalGpu}`,
+    "",
+    "资源组",
+    formatTable(poolRows, [
+      { key: "name", label: "名称" },
+      { key: "type", label: "类型" },
+      { key: "free", label: "剩余GPU" },
+      { key: "total", label: "总GPU" },
+      { key: "assigned", label: "已分配" },
+      { key: "unavailable", label: "不可用" },
+    ]),
+    "",
+    "队列（剩余 = 配额 - 已分配；允许借用时实际可申请量还受资源组实时空闲量影响）",
+    formatTable(queueRows, [
+      { key: "pool", label: "资源组" },
+      { key: "queue", label: "队列" },
+      { key: "models", label: "型号:配额" },
+      { key: "quota", label: "GPU配额" },
+      { key: "allocated", label: "已分配" },
+      { key: "remaining", label: "配额剩余" },
+      { key: "borrowing", label: "允许借用" },
+    ]),
+  ];
+  return print(lines.join("\n"));
 }
 
 async function handleDev(context, action, args) {
@@ -290,6 +343,7 @@ async function main() {
     return print(await context.browser.logout({ forget }), true);
   }
   if (group === "session") return print(await context.browser.status(), true);
+  if (group === "gpu") return handleGpu(context, [action, ...rest].filter((item) => item !== undefined));
   if (group === "dev") return handleDev(context, action, rest);
   if (group === "train") return handleTrain(context, action, rest);
   if (group === "template") return handleTemplate(context, action, rest);
