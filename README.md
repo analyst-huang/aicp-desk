@@ -29,12 +29,12 @@ AICP Desk 是一个运行在本机的金山云星流（AICP）控制工具，同
 | Windows（仍受 Node.js 22 与 Edge 支持的版本） | 支持 | `install.ps1` |
 | macOS（Intel / Apple Silicon） | 支持 | `install.sh` |
 | Linux（发行版需能运行 Microsoft Edge） | 支持 | `install.sh` |
-| Linux 无桌面环境（Debian/Ubuntu amd64） | 支持 AICP 私有运行时和远端登录；不安装系统包 | `install.sh` |
+| Linux 无桌面环境 | 支持环境优先、私有补齐的远端登录；不安装系统包 | `install.sh` |
 
 所有平台均需要：
 
 1. [Node.js](https://nodejs.org/) 22 或更高版本。
-2. 桌面环境需要 [Microsoft Edge](https://www.microsoft.com/edge/download)；Debian/Ubuntu 无显示器服务器可由 AICP 下载私有 Edge，无需系统安装。
+2. 桌面环境需要 [Microsoft Edge](https://www.microsoft.com/edge/download)；无显示器服务器会优先使用环境已有组件，并在 Debian/Ubuntu amd64 上把缺失项补到 AICP 私有目录。
 3. 可访问金山云登录页和星流控制台的网络。
 
 检查 Node.js：
@@ -191,14 +191,20 @@ aicp config set edgePath "C:\Program Files (x86)\Microsoft\Edge\Application\msed
 
 ### 1. 远端前置条件
 
-- Debian/Ubuntu amd64（`dpkg --print-architecture` 输出 `amd64`）。Microsoft Edge Linux 版不支持常见的 ARM64 服务器。
+- 如果环境已经提供全部组件，可使用相应的 Linux 环境；自动下载私有缺失项目前要求 Debian/Ubuntu amd64（`dpkg --print-architecture` 输出 `amd64`）。
 - Node.js 22 或更高版本。
 - 普通服务器优先使用普通用户。Docker、Podman、Kubernetes 或 LXC 容器内如果当前就是 root，安装器会自动识别并使用显式标记的 `root-container` 模式。
-- 服务器能访问 `packages.microsoft.com`、金山云登录页和 AICP 控制台。
-- 主机提供 Debian/Ubuntu 自带的 `apt-get`、`apt-cache`、`dpkg-deb`、`curl`、`gzip`、`python3` 等基础命令；脚本只用它们下载和解包，不安装软件包。
+- 服务器需要访问金山云登录页和 AICP 控制台；只有缺少 Edge 时才需要访问 `packages.microsoft.com`。
+- 只有存在缺失组件时，才需要 Debian/Ubuntu 自带的 `apt-get`、`apt-cache`、`dpkg-deb` 等下载和解包命令；只有缺少 Edge 时才需要 `curl`、`gzip`，只有使用私有 websockify 时才需要 `python3`。脚本不会安装系统软件包。
 - `AICP_HOME` 位于该用户的持久、私有磁盘目录。不要放在会被任务结束时清空的临时目录。
 
-从仓库运行一次依赖安装脚本。它会把 Edge、Xvfb、x11vnc、noVNC、websockify、openbox 及所需共享库下载并解包到 AICP 私有运行时。它不会执行 `sudo`、`apt-get install` 或 `dpkg -i`，不会添加系统 APT 源，也不会写入 `/usr`、`/opt`、`/etc` 和系统包数据库：
+从仓库运行一次依赖安装脚本。它会逐项检查 Edge、Xvfb、x11vnc、noVNC、websockify 和 openbox/fluxbox，按以下顺序选择来源：
+
+1. 使用当前环境的 `PATH` 或常见系统目录中已经可用的组件。
+2. 环境缺失时，复用 AICP `runtime/` 中上次已经下载的私有副本。
+3. 仅下载仍然缺失的组件和依赖，解包到 AICP 私有运行时。
+
+因此，组件齐全时不会访问软件包仓库；混合环境只补缺失项；重复安装也会复用缓存。安装开始时会打印每个组件是环境路径、`private (cached)` 还是 `private (install)`。它不会执行 `sudo`、`apt-get install` 或 `dpkg -i`，不会添加系统 APT 源，也不会写入 `/usr`、`/opt`、`/etc` 和系统包数据库：
 
 ```bash
 chmod +x install.sh
@@ -213,21 +219,21 @@ aicp remote-ui install --yes
 ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app/scripts/install-remote-ui-debian.sh
 ```
 
-私有运行时默认位于：
+私有补齐目录和安装清单默认位于：
 
 ```text
 ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime/
-├── bin/       # AICP 使用的私有启动包装器
-├── rootfs/    # 只对 AICP 可见的 Edge、Xvfb、noVNC 和库文件
-├── manifest.txt
+├── bin/       # 仅缺失组件需要的私有启动包装器
+├── rootfs/    # 已下载的缺失组件、noVNC 网页和共享库
+├── manifest.txt  # 记录每个组件实际选择的来源
 └── root-model / allow-no-sandbox  # 仅 root-container 模式存在
 ```
 
-如果设置了 `AICP_INSTALL_DIR`，则位于 `$AICP_INSTALL_DIR/runtime`。重新运行脚本会在临时目录构建并验证新运行时，成功后再替换旧版本；普通的 `install.sh` 升级只替换 `app/`，会保留现有 `runtime/`。
+如果设置了 `AICP_INSTALL_DIR`，则位于 `$AICP_INSTALL_DIR/runtime`。重新运行脚本会复制并复用已有私有组件，在临时目录补齐和验证，成功后再替换旧版本；普通的 `install.sh` 升级只替换 `app/`，也会保留现有 `runtime/`。运行时解析始终把环境路径放在私有目录之前，所以之后在环境中安装的组件会自动优先使用。
 
 安装器会先读取当前 UID，并检查 `/.dockerenv`、`/run/.containerenv`、Kubernetes 环境变量和 cgroup：
 
-- 非 root：使用 `user-sandbox`，私有 Edge 改用 Linux 非特权用户命名空间沙箱。
+- 非 root：使用 `user-sandbox`；环境 Edge 使用自身的正常沙箱，私有 Edge 使用 Linux 非特权用户命名空间沙箱。
 - 检测到容器内 root：自动使用 `root-container`，写入 `root-model` 与 `allow-no-sandbox` 标记；Edge 必须以 `--no-sandbox` 运行。
 - 裸机 root：默认拒绝，避免误判。确认它确实处于受控隔离环境时才显式运行 `aicp remote-ui install --allow-root --yes`。
 
@@ -239,7 +245,7 @@ aicp remote-ui install --allow-no-sandbox --yes
 
 `--allow-no-sandbox` 和 root 模式都会留下可审计标记；不要在多人共享、挂载宿主机敏感目录或运行不可信网页的容器上使用。
 
-当前自动私有运行时只支持 Debian/Ubuntu amd64。其他发行版仍可手工提供 Edge 和相关组件，但脚本不会为了兼容而修改系统软件。
+当前自动下载私有缺失项只支持 Debian/Ubuntu amd64。其他发行版或架构只要已经提供全部组件，也可以直接复用环境；脚本不会为了兼容而修改系统软件。
 
 ### 2. 让 Agent 先做只读自检
 
@@ -247,7 +253,7 @@ aicp remote-ui install --allow-no-sandbox --yes
 aicp remote-ui doctor
 ```
 
-输出中的 `ready` 必须为 `true`；`privateRuntime.path` 显示实际私有安装目录，`privateRuntime.mode` 显示 `user-sandbox`、`user-no-sandbox` 或 `root-container`，`containerDetected` 和 `rootModel` 记录判断结果。root 模式会在 `warnings` 中持续提示。如果 `ready` 为 `false`，命令会返回非零退出码，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
+输出中的 `ready` 必须为 `true`；`dependencies` 显示当前真正会执行的组件路径，`privateRuntime.strategy` 应为 `environment-first`，`privateRuntime.sources` 逐项显示安装时选择了环境还是私有补齐。`privateRuntime.mode` 显示 `user-sandbox`、`user-no-sandbox` 或 `root-container`，`containerDetected` 和 `rootModel` 记录判断结果。root 模式会在 `warnings` 中持续提示。如果 `ready` 为 `false`，命令会返回非零退出码，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
 
 ```bash
 aicp login --remote-ui --web-root "$HOME/private-noVNC" --yes
@@ -351,7 +357,8 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | --- | --- |
 | `ready: false` 或提示缺少 Xvfb/noVNC | 运行 `aicp remote-ui install --yes`，再执行 `doctor`；不需要 `sudo apt install`。 |
 | 容器 root 被当成裸机 root | 容器检测可能被运行时隐藏；确认隔离边界后执行 `aicp remote-ui install --allow-root --yes`。 |
-| 提示找不到 noVNC 网页 | 重新运行私有安装脚本；默认文件位于 `runtime/rootfs/usr/share/novnc`。自定义安装可用 `--web-root` 指定。 |
+| 提示找不到 noVNC 网页 | 重新运行混合安装脚本；它会先查 `/usr/share/novnc` 等环境目录，再补到 `runtime/rootfs/usr/share/novnc`。自定义安装可用 `--web-root` 指定。 |
+| 安装仍然准备下载很多包 | 查看安装开头的 component plan，并运行 `aicp remote-ui doctor` 查看实际路径；环境组件必须能通过 `PATH` 或文档中的常见目录找到。已有私有副本会显示为 `private (cached)`。 |
 | `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
 | 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |
 | VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
@@ -633,7 +640,7 @@ AICP_HOME=/secure/path/aicp aicp session
 - `remote-ui.json`：正在运行的远端画面进程与端口；执行 `aicp remote-ui stop` 后删除。
 - `remote-ui-profile.json`：标记无显示器服务器使用的密码存储模式；`logout --forget` 时删除。
 
-Linux 程序文件与私有远端运行时不在上述状态目录中，分别位于 `${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app` 和 `${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime`。`uninstall.sh --keep-data` 会删除二者，但保留这里的配置、模板和登录资料。
+Linux 程序文件与远端 UI 的私有补齐目录不在上述状态目录中，分别位于 `${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app` 和 `${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime`。`uninstall.sh --keep-data` 会删除二者，但保留这里的配置、模板和登录资料。
 
 不要将这些数据目录加入 Git，也不要共享给其他人。
 

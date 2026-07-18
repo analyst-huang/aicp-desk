@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ "$(uname -s)" != "Linux" ] || ! command -v apt-get >/dev/null 2>&1 || ! command -v dpkg >/dev/null 2>&1; then
-  printf 'This private-runtime installer supports Debian and Ubuntu only.\n' >&2
+if [ "$(uname -s)" != "Linux" ]; then
+  printf 'This hybrid-runtime installer supports Linux only.\n' >&2
   exit 1
 fi
 
@@ -30,19 +30,6 @@ if [ "$USER_ID" -eq 0 ]; then
   fi
 fi
 
-ARCHITECTURE=$(dpkg --print-architecture)
-if [ "$ARCHITECTURE" != "amd64" ]; then
-  printf 'Microsoft Edge for Linux requires amd64/x86_64; detected: %s\n' "$ARCHITECTURE" >&2
-  exit 1
-fi
-
-for command_name in curl gzip awk sort apt-cache apt-get dpkg-deb python3; do
-  if ! command -v "$command_name" >/dev/null 2>&1; then
-    printf 'Missing host prerequisite: %s\n' "$command_name" >&2
-    exit 1
-  fi
-done
-
 if [ -n "${AICP_INSTALL_DIR:-}" ]; then
   ROOT=$AICP_INSTALL_DIR
 else
@@ -65,75 +52,189 @@ trap cleanup EXIT HUP INT TERM
 
 mkdir -p "$ROOT" "$STAGING/rootfs" "$STAGING/bin" "$DOWNLOADS/debs"
 
-printf 'Downloading Microsoft Edge into the AICP private runtime...\n'
-EDGE_REPOSITORY=https://packages.microsoft.com/repos/edge
-curl -fsSL "$EDGE_REPOSITORY/dists/stable/main/binary-amd64/Packages.gz" -o "$DOWNLOADS/edge-packages.gz"
-gzip -dc "$DOWNLOADS/edge-packages.gz" > "$DOWNLOADS/edge-packages"
-EDGE_FILENAME=$(awk '
-  BEGIN { RS=""; FS="\n" }
-  {
-    package_name=""; filename=""
-    for (field_number=1; field_number<=NF; field_number++) {
-      if ($field_number ~ /^Package: /) { package_name=substr($field_number, 10) }
-      if ($field_number ~ /^Filename: /) { filename=substr($field_number, 11) }
-    }
-    if (package_name == "microsoft-edge-stable" && filename != "") { print filename; exit }
-  }
-' "$DOWNLOADS/edge-packages")
-if [ -z "$EDGE_FILENAME" ]; then
-  printf 'Could not locate microsoft-edge-stable in the Microsoft repository metadata.\n' >&2
+# Keep a previously downloaded private fallback so reinstalling does not need
+# to fetch it again. Environment components still win at runtime.
+if [ -d "$RUNTIME" ]; then
+  cp -a "$RUNTIME/." "$STAGING/"
+  rm -f "$STAGING/root-model" "$STAGING/allow-no-sandbox" "$STAGING/manifest.txt"
+fi
+
+external_command() {
+  candidate=$(command -v "$1" 2>/dev/null || true)
+  [ -n "$candidate" ] || return 1
+  case "$candidate" in "$RUNTIME"/*) return 1 ;; esac
+  printf '%s\n' "$candidate"
+}
+
+first_external_command() {
+  for command_candidate in "$@"; do
+    if resolved_candidate=$(external_command "$command_candidate"); then printf '%s\n' "$resolved_candidate"; return 0; fi
+  done
+  return 1
+}
+
+EDGE_COMMAND=$(first_external_command microsoft-edge microsoft-edge-stable msedge || true)
+if [ -z "$EDGE_COMMAND" ] && [ -x /opt/microsoft/msedge/msedge ]; then EDGE_COMMAND=/opt/microsoft/msedge/msedge; fi
+if [ -n "$EDGE_COMMAND" ] && ! "$EDGE_COMMAND" --version >/dev/null 2>&1; then EDGE_COMMAND=""; fi
+XVFB_COMMAND=$(first_external_command Xvfb || true)
+X11VNC_COMMAND=$(first_external_command x11vnc || true)
+WINDOW_MANAGER_COMMAND=$(first_external_command openbox openbox-session fluxbox || true)
+WEBSOCKIFY_COMMAND=$(first_external_command websockify || true)
+NOVNC_ROOT=""
+for web_root_candidate in "${NOVNC_WEB:-}" /usr/share/novnc /usr/share/noVNC /opt/novnc /opt/noVNC; do
+  [ -n "$web_root_candidate" ] || continue
+  case "$web_root_candidate" in "$RUNTIME"/*) continue ;; esac
+  if [ -e "$web_root_candidate/vnc.html" ] || [ -e "$web_root_candidate/vnc_lite.html" ]; then NOVNC_ROOT=$web_root_candidate; break; fi
+done
+
+PRIVATE_EDGE=0
+PRIVATE_XVFB=0
+PRIVATE_X11VNC=0
+PRIVATE_WINDOW_MANAGER=0
+PRIVATE_WEBSOCKIFY=0
+PRIVATE_NOVNC=0
+[ -x "$RUNTIME/bin/microsoft-edge-stable" ] && [ -x "$RUNTIME/rootfs/opt/microsoft/msedge/msedge" ] && PRIVATE_EDGE=1
+[ -x "$RUNTIME/bin/Xvfb" ] && [ -e "$RUNTIME/rootfs/usr/share/X11/xkb" ] && PRIVATE_XVFB=1
+[ -x "$RUNTIME/bin/x11vnc" ] && PRIVATE_X11VNC=1
+[ -x "$RUNTIME/bin/openbox" ] && PRIVATE_WINDOW_MANAGER=1
+[ -x "$RUNTIME/bin/websockify" ] && PRIVATE_WEBSOCKIFY=1
+[ -e "$RUNTIME/rootfs/usr/share/novnc/vnc.html" ] && PRIVATE_NOVNC=1
+
+MISSING_SEED_PACKAGES=""
+[ -n "$XVFB_COMMAND" ] || [ "$PRIVATE_XVFB" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES xvfb"
+[ -n "$X11VNC_COMMAND" ] || [ "$PRIVATE_X11VNC" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES x11vnc"
+[ -n "$WINDOW_MANAGER_COMMAND" ] || [ "$PRIVATE_WINDOW_MANAGER" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES openbox"
+[ -n "$WEBSOCKIFY_COMMAND" ] || [ "$PRIVATE_WEBSOCKIFY" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES websockify"
+[ -n "$NOVNC_ROOT" ] || [ "$PRIVATE_NOVNC" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES novnc"
+
+NEED_EDGE_DOWNLOAD=0
+[ -n "$EDGE_COMMAND" ] || [ "$PRIVATE_EDGE" -eq 1 ] || NEED_EDGE_DOWNLOAD=1
+
+component_plan() {
+  environment_path=$1
+  cached=$2
+  if [ -n "$environment_path" ]; then printf '%s' "$environment_path"
+  elif [ "$cached" -eq 1 ]; then printf '%s' 'private (cached)'
+  else printf '%s' 'private (install)'
+  fi
+}
+
+printf 'Remote UI component plan (environment first, private fallback):\n'
+printf '  Edge:         '; component_plan "$EDGE_COMMAND" "$PRIVATE_EDGE"; printf '\n'
+printf '  Xvfb:         '; component_plan "$XVFB_COMMAND" "$PRIVATE_XVFB"; printf '\n'
+printf '  x11vnc:       '; component_plan "$X11VNC_COMMAND" "$PRIVATE_X11VNC"; printf '\n'
+printf '  window mgr:   '; component_plan "$WINDOW_MANAGER_COMMAND" "$PRIVATE_WINDOW_MANAGER"; printf '\n'
+printf '  websockify:   '; component_plan "$WEBSOCKIFY_COMMAND" "$PRIVATE_WEBSOCKIFY"; printf '\n'
+printf '  noVNC web:    '; component_plan "$NOVNC_ROOT" "$PRIVATE_NOVNC"; printf '\n'
+
+if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ] || [ -n "$MISSING_SEED_PACKAGES" ]; then
+  for command_name in awk sort grep apt-cache apt-get dpkg-deb; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      printf 'Missing host prerequisite needed for private fallback: %s\n' "$command_name" >&2
+      exit 1
+    fi
+  done
+  if command -v dpkg >/dev/null 2>&1; then ARCHITECTURE=$(dpkg --print-architecture)
+  else ARCHITECTURE=$(uname -m)
+  fi
+  case "$ARCHITECTURE" in amd64|x86_64) : ;; *)
+    printf 'The private fallback requires amd64/x86_64; detected: %s\n' "$ARCHITECTURE" >&2
+    exit 1 ;;
+  esac
+fi
+if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ]; then
+  for command_name in curl gzip; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      printf 'Missing host prerequisite needed for private Edge: %s\n' "$command_name" >&2
+      exit 1
+    fi
+  done
+fi
+if [ -z "$WEBSOCKIFY_COMMAND" ] && ! command -v python3 >/dev/null 2>&1; then
+  printf 'Missing host prerequisite needed for private websockify: python3\n' >&2
   exit 1
 fi
-curl -fsSL "$EDGE_REPOSITORY/$EDGE_FILENAME" -o "$DOWNLOADS/debs/microsoft-edge-stable.deb"
 
-printf 'Downloading Xvfb/noVNC components without installing system packages...\n'
-SEED_PACKAGES="xvfb x11vnc novnc websockify openbox"
-OPTIONAL_EDGE_LIBRARIES="libasound2 libasound2t64 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 libcups2t64 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libudev1 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2"
-AVAILABLE_PACKAGES=$SEED_PACKAGES
-for package_name in $OPTIONAL_EDGE_LIBRARIES; do
-  if apt-cache show "$package_name" >/dev/null 2>&1; then AVAILABLE_PACKAGES="$AVAILABLE_PACKAGES $package_name"; fi
-done
-
-apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances $AVAILABLE_PACKAGES \
-  | awk '/^[[:alnum:]][[:alnum:].+_-]*(:[[:alnum:]_-]+)?$/ { sub(/:.*/, "", $1); print $1 }' \
-  | sort -u > "$DOWNLOADS/package-list"
-
-for package_name in $SEED_PACKAGES; do
-  if ! grep -qx "$package_name" "$DOWNLOADS/package-list"; then printf '%s\n' "$package_name" >> "$DOWNLOADS/package-list"; fi
-done
-sort -u "$DOWNLOADS/package-list" -o "$DOWNLOADS/package-list"
-
-while IFS= read -r package_name; do
-  [ -n "$package_name" ] || continue
-  case "$package_name" in
-    libc6|libgcc-s1|libstdc++6|zlib1g|libselinux1|libpcre2-8-0) continue ;;
-  esac
-  if ! (cd "$DOWNLOADS/debs" && apt-get download "$package_name" >/dev/null 2>&1); then
-    case " $SEED_PACKAGES " in
-      *" $package_name "*) printf 'Failed to download required package: %s\n' "$package_name" >&2; exit 1 ;;
-      *) printf 'Warning: optional package could not be downloaded: %s\n' "$package_name" >&2 ;;
-    esac
+EDGE_FILENAME=environment
+if [ "$PRIVATE_EDGE" -eq 1 ]; then
+  EDGE_FILENAME=""
+  if [ -r "$RUNTIME/manifest.txt" ]; then
+    while IFS='=' read -r manifest_key manifest_value; do
+      if [ "$manifest_key" = "edge_package" ]; then EDGE_FILENAME=$manifest_value; break; fi
+    done < "$RUNTIME/manifest.txt"
   fi
-done < "$DOWNLOADS/package-list"
+  EDGE_FILENAME=${EDGE_FILENAME:-cached}
+fi
+if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ]; then
+  printf 'Downloading missing Microsoft Edge into the AICP private runtime...\n'
+  EDGE_REPOSITORY=https://packages.microsoft.com/repos/edge
+  curl -fsSL "$EDGE_REPOSITORY/dists/stable/main/binary-amd64/Packages.gz" -o "$DOWNLOADS/edge-packages.gz"
+  gzip -dc "$DOWNLOADS/edge-packages.gz" > "$DOWNLOADS/edge-packages"
+  EDGE_FILENAME=$(awk '
+    BEGIN { RS=""; FS="\n" }
+    {
+      package_name=""; filename=""
+      for (field_number=1; field_number<=NF; field_number++) {
+        if ($field_number ~ /^Package: /) { package_name=substr($field_number, 10) }
+        if ($field_number ~ /^Filename: /) { filename=substr($field_number, 11) }
+      }
+      if (package_name == "microsoft-edge-stable" && filename != "") { print filename; exit }
+    }
+  ' "$DOWNLOADS/edge-packages")
+  if [ -z "$EDGE_FILENAME" ]; then
+    printf 'Could not locate microsoft-edge-stable in the Microsoft repository metadata.\n' >&2
+    exit 1
+  fi
+  curl -fsSL "$EDGE_REPOSITORY/$EDGE_FILENAME" -o "$DOWNLOADS/debs/microsoft-edge-stable.deb"
+fi
+
+AVAILABLE_PACKAGES=$MISSING_SEED_PACKAGES
+if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ]; then
+  OPTIONAL_EDGE_LIBRARIES="libasound2 libasound2t64 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 libcups2t64 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libudev1 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2"
+  for package_name in $OPTIONAL_EDGE_LIBRARIES; do
+    if apt-cache show "$package_name" >/dev/null 2>&1; then AVAILABLE_PACKAGES="$AVAILABLE_PACKAGES $package_name"; fi
+  done
+fi
+
+if [ -n "$AVAILABLE_PACKAGES" ]; then
+  printf 'Downloading only missing helper components and their private dependencies...\n'
+  apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances $AVAILABLE_PACKAGES \
+    | awk '/^[[:alnum:]][[:alnum:].+_-]*(:[[:alnum:]_-]+)?$/ { sub(/:.*/, "", $1); print $1 }' \
+    | sort -u > "$DOWNLOADS/package-list"
+
+  for package_name in $MISSING_SEED_PACKAGES; do
+    if ! grep -qx "$package_name" "$DOWNLOADS/package-list"; then printf '%s\n' "$package_name" >> "$DOWNLOADS/package-list"; fi
+  done
+  sort -u "$DOWNLOADS/package-list" -o "$DOWNLOADS/package-list"
+
+  while IFS= read -r package_name; do
+    [ -n "$package_name" ] || continue
+    case "$package_name" in
+      libc6|libgcc-s1|libstdc++6|zlib1g|libselinux1|libpcre2-8-0) continue ;;
+    esac
+    if ! (cd "$DOWNLOADS/debs" && apt-get download "$package_name" >/dev/null 2>&1); then
+      case " $MISSING_SEED_PACKAGES " in
+        *" $package_name "*) printf 'Failed to download required package: %s\n' "$package_name" >&2; exit 1 ;;
+        *) printf 'Warning: optional package could not be downloaded: %s\n' "$package_name" >&2 ;;
+      esac
+    fi
+  done < "$DOWNLOADS/package-list"
+fi
 
 for package_file in "$DOWNLOADS"/debs/*.deb; do
   [ -e "$package_file" ] || continue
   dpkg-deb -x "$package_file" "$STAGING/rootfs"
 done
 
-for required_file in \
-  opt/microsoft/msedge/msedge \
-  usr/bin/Xvfb \
-  usr/bin/x11vnc \
-  usr/bin/openbox \
-  usr/bin/websockify \
-  usr/share/X11/xkb \
-  usr/share/novnc/vnc.html; do
-  if [ ! -e "$STAGING/rootfs/$required_file" ]; then
-    printf 'Private runtime is incomplete; missing: %s\n' "$required_file" >&2
-    exit 1
-  fi
-done
+require_private_file() {
+  if [ ! -e "$STAGING/rootfs/$1" ]; then printf 'Private runtime is incomplete; missing: %s\n' "$1" >&2; exit 1; fi
+}
+[ -n "$EDGE_COMMAND" ] || require_private_file opt/microsoft/msedge/msedge
+if [ -z "$XVFB_COMMAND" ]; then require_private_file usr/bin/Xvfb; require_private_file usr/share/X11/xkb; fi
+[ -n "$X11VNC_COMMAND" ] || require_private_file usr/bin/x11vnc
+[ -n "$WINDOW_MANAGER_COMMAND" ] || require_private_file usr/bin/openbox
+[ -n "$WEBSOCKIFY_COMMAND" ] || require_private_file usr/bin/websockify
+[ -n "$NOVNC_ROOT" ] || require_private_file usr/share/novnc/vnc.html
 
 write_native_wrapper() {
   wrapper_name=$1
@@ -153,10 +254,10 @@ write_native_wrapper() {
   chmod 0755 "$STAGING/bin/$wrapper_name"
 }
 
-write_native_wrapper x11vnc usr/bin/x11vnc
-write_native_wrapper openbox usr/bin/openbox
+if [ -z "$X11VNC_COMMAND" ]; then write_native_wrapper x11vnc usr/bin/x11vnc; fi
+if [ -z "$WINDOW_MANAGER_COMMAND" ]; then write_native_wrapper openbox usr/bin/openbox; fi
 
-printf '%s\n' \
+if [ -z "$EDGE_COMMAND" ]; then printf '%s\n' \
   '#!/usr/bin/env sh' \
   'set -eu' \
   'RUNTIME=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)' \
@@ -169,8 +270,9 @@ printf '%s\n' \
   'exec "$ROOTFS/opt/microsoft/msedge/msedge" "$SANDBOX_ARGUMENT" "$@"' \
   > "$STAGING/bin/microsoft-edge-stable"
 chmod 0755 "$STAGING/bin/microsoft-edge-stable"
+fi
 
-printf '%s\n' \
+if [ -z "$XVFB_COMMAND" ]; then printf '%s\n' \
   '#!/usr/bin/env sh' \
   'set -eu' \
   'RUNTIME=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)' \
@@ -181,8 +283,9 @@ printf '%s\n' \
   'exec "$ROOTFS/usr/bin/Xvfb" "$@" -xkbdir "$ROOTFS/usr/share/X11/xkb"' \
   > "$STAGING/bin/Xvfb"
 chmod 0755 "$STAGING/bin/Xvfb"
+fi
 
-printf '%s\n' \
+if [ -z "$WEBSOCKIFY_COMMAND" ]; then printf '%s\n' \
   '#!/usr/bin/env sh' \
   'set -eu' \
   'RUNTIME=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)' \
@@ -191,6 +294,7 @@ printf '%s\n' \
   'exec python3 "$ROOTFS/usr/bin/websockify" "$@"' \
   > "$STAGING/bin/websockify"
 chmod 0755 "$STAGING/bin/websockify"
+fi
 
 if [ "$ROOT_MODEL" -eq 1 ]; then
   : > "$STAGING/root-model"
@@ -199,20 +303,37 @@ if [ "$ROOT_MODEL" -eq 1 ]; then
 elif [ "${AICP_ALLOW_NO_SANDBOX:-0}" = "1" ]; then
   : > "$STAGING/allow-no-sandbox"
   RUNTIME_MODE=user-no-sandbox
-  printf 'Warning: private Edge sandbox is disabled by explicit request. Use only on a trusted dedicated server.\n' >&2
+  printf 'Warning: the selected Edge sandbox is disabled by explicit request. Use only on a trusted dedicated server.\n' >&2
 fi
 
+EDGE_SOURCE=${EDGE_COMMAND:-private:runtime/bin/microsoft-edge-stable}
+XVFB_SOURCE=${XVFB_COMMAND:-private:runtime/bin/Xvfb}
+X11VNC_SOURCE=${X11VNC_COMMAND:-private:runtime/bin/x11vnc}
+WINDOW_MANAGER_SOURCE=${WINDOW_MANAGER_COMMAND:-private:runtime/bin/openbox}
+WEBSOCKIFY_SOURCE=${WEBSOCKIFY_COMMAND:-private:runtime/bin/websockify}
+NOVNC_SOURCE=${NOVNC_ROOT:-private:runtime/rootfs/usr/share/novnc}
+
 printf '%s\n' \
-  'version=1' \
-  'scope=aicp-private-runtime' \
+  'version=2' \
+  'scope=aicp-hybrid-runtime' \
   "mode=$RUNTIME_MODE" \
   "installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   "edge_package=$EDGE_FILENAME" \
+  "edge_source=$EDGE_SOURCE" \
+  "xvfb_source=$XVFB_SOURCE" \
+  "x11vnc_source=$X11VNC_SOURCE" \
+  "window_manager_source=$WINDOW_MANAGER_SOURCE" \
+  "websockify_source=$WEBSOCKIFY_SOURCE" \
+  "novnc_source=$NOVNC_SOURCE" \
   > "$STAGING/manifest.txt"
 
-if ! "$STAGING/bin/microsoft-edge-stable" --headless=new --disable-gpu --no-first-run \
+EDGE_SMOKE_COMMAND=$EDGE_COMMAND
+if [ -z "$EDGE_SMOKE_COMMAND" ]; then EDGE_SMOKE_COMMAND="$STAGING/bin/microsoft-edge-stable"; fi
+EDGE_SMOKE_SANDBOX=""
+if [ "$ROOT_MODEL" -eq 1 ] || [ "${AICP_ALLOW_NO_SANDBOX:-0}" = "1" ]; then EDGE_SMOKE_SANDBOX=--no-sandbox; fi
+if ! "$EDGE_SMOKE_COMMAND" $EDGE_SMOKE_SANDBOX --headless=new --disable-gpu --no-first-run \
   --user-data-dir="$DOWNLOADS/edge-smoke-profile" --dump-dom about:blank >/dev/null 2>&1; then
-  printf 'The private Edge runtime could not start. Check base libraries and unprivileged user namespaces.\n' >&2
+  printf 'The selected Edge could not start. Check its libraries and the current sandbox mode.\n' >&2
   printf 'On a trusted dedicated server only, retry with: AICP_ALLOW_NO_SANDBOX=1 %s\n' "$0" >&2
   exit 1
 fi
@@ -226,10 +347,10 @@ fi
 rm -rf "$BACKUP"
 COMMITTED=1
 
-printf '\nAICP private remote UI runtime installed successfully.\n'
+printf '\nAICP hybrid remote UI runtime installed successfully.\n'
 printf 'Runtime: %s\n' "$RUNTIME"
 printf 'Mode: %s\n' "$RUNTIME_MODE"
 printf 'No files were written to /usr, /opt, or /etc.\n'
-printf 'Run as your normal user:\n'
+printf 'Run as the same user:\n'
 printf '  aicp remote-ui doctor\n'
 printf '  aicp login --remote-ui --yes\n'

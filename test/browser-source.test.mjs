@@ -24,6 +24,15 @@ test("headless Linux requests reuse the password store selected by remote UI log
   assert.match(launchHeadless, /passwordStore: "basic"|\? "basic"/);
 });
 
+test("root-container markers apply no-sandbox even when Edge comes from the environment", () => {
+  assert.match(source, /allow-no-sandbox/);
+  assert.match(source, /args\.push\("--no-sandbox"\)/);
+  const launchLogin = source.slice(source.indexOf("async launchLogin("), source.indexOf("async launchHeadless("));
+  const launchHeadless = source.slice(source.indexOf("async launchHeadless()"), source.indexOf("async withBrowser("));
+  assert.match(launchLogin, /noSandbox/);
+  assert.match(launchHeadless, /noSandbox/);
+});
+
 test("browser requests use a shared reference-counted session lease", () => {
   assert.match(source, /async withBrowser\(callback\)/);
   assert.match(source, /this\.browserUsers \+= 1/);

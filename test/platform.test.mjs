@@ -26,5 +26,5 @@ test("Edge candidates cover Windows, macOS, and Linux", () => {
   assert.ok(windows.some((item) => item.endsWith("msedge.exe")));
   assert.ok(mac.some((item) => item.includes("Microsoft Edge.app/Contents/MacOS/Microsoft Edge")));
   assert.ok(linux.includes("microsoft-edge-stable"));
-  assert.equal(linux[0], "/home/demo/.local/share/aicp-cli/runtime/bin/microsoft-edge-stable");
+  assert.equal(linux.at(-1), "/home/demo/.local/share/aicp-cli/runtime/bin/microsoft-edge-stable");
 });

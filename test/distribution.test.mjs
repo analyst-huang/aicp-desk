@@ -47,8 +47,14 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   assert.match(windowsInstall, /'scripts'/);
   assert.match(unixInstall, /bin lib web docs examples scripts/);
   assert.match(dependencyInstaller, /microsoft-edge-stable/);
-  assert.match(dependencyInstaller, /xvfb x11vnc novnc websockify openbox/);
-  assert.match(dependencyInstaller, /AICP private remote UI runtime installed/);
+  for (const component of ["xvfb", "x11vnc", "novnc", "websockify", "openbox"]) {
+    assert.match(dependencyInstaller, new RegExp(component));
+  }
+  assert.match(dependencyInstaller, /environment first, private fallback/);
+  assert.match(dependencyInstaller, /private \(cached\)/);
+  assert.match(dependencyInstaller, /MISSING_SEED_PACKAGES/);
+  assert.match(dependencyInstaller, /AICP hybrid remote UI runtime installed/);
+  assert.match(dependencyInstaller, /edge_source=/);
   assert.match(dependencyInstaller, /apt-get download/);
   assert.match(dependencyInstaller, /CONTAINER_DETECTED/);
   assert.match(dependencyInstaller, /RUNTIME_MODE=root-container/);

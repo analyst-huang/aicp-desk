@@ -49,6 +49,30 @@ test("doctor reports a complete Linux dependency set for an ordinary user", asyn
   assert.equal(report.edge, "/mock/microsoft-edge");
 });
 
+test("doctor reports whether each hybrid runtime component came from the environment or private fallback", async () => {
+  const report = await remoteUiDoctor({}, {}, {
+    platform: "linux",
+    getuid: () => 1000,
+    runtimeManifest: {
+      scope: "aicp-hybrid-runtime",
+      mode: "user-sandbox",
+      edge_source: "/usr/bin/microsoft-edge",
+      xvfb_source: "private:runtime/bin/Xvfb",
+      x11vnc_source: "/usr/bin/x11vnc",
+      window_manager_source: "/usr/bin/openbox",
+      websockify_source: "private:runtime/bin/websockify",
+      novnc_source: "/usr/share/novnc",
+    },
+    resolveExecutable: async (candidate) => `/mock/${candidate}`,
+    findNoVnc: async () => ({ root: "/usr/share/novnc", entrypoint: "vnc.html" }),
+    findEdge: async () => "/usr/bin/microsoft-edge",
+  });
+  assert.equal(report.privateRuntime.strategy, "environment-first");
+  assert.equal(report.privateRuntime.sources.edge, "/usr/bin/microsoft-edge");
+  assert.equal(report.privateRuntime.sources.xvfb, "private:runtime/bin/Xvfb");
+  assert.equal(report.privateRuntime.sources.websockify, "private:runtime/bin/websockify");
+});
+
 test("doctor refuses root and explains missing dependencies", async () => {
   const report = await remoteUiDoctor({}, {}, {
     platform: "linux",
