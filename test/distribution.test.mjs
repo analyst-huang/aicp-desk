@@ -40,4 +40,6 @@ test("CLI exposes GPU capacity in human and JSON modes", async () => {
   assert.match(cli, /aicp gpu \[--json\]/);
   assert.match(cli, /context\.service\.gpuCapacity/);
   assert.match(cli, /资源组物理 GPU/);
+  assert.match(cli, /GPU剩余\/可分配/);
+  assert.match(cli, /内存剩余\/可分配/);
 });

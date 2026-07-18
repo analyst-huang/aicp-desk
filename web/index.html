@@ -88,10 +88,10 @@
         <div class="hero gpu-hero">
           <div>
             <span class="hero-kicker">Live GPU capacity</span>
-            <h2>资源组与队列 GPU，一页看清</h2>
-            <p>资源组显示物理 GPU 当前剩余量；队列显示 GPU 配额、已分配与配额剩余。数据每 10 秒只读刷新。</p>
+            <h2>资源组、队列与每台机器，一页看清</h2>
+            <p>逐节点显示 GPU 型号、卡量、剩余内存与 CPU；资源组和队列口径同时保留。数据每 10 秒只读刷新。</p>
           </div>
-          <div class="capacity-legend"><span><i class="free"></i>资源组物理空闲</span><span><i class="quota"></i>队列配额剩余</span></div>
+          <div class="capacity-legend"><span><i class="node"></i>逐节点可调度余量</span><span><i class="free"></i>资源组物理空闲</span><span><i class="quota"></i>队列配额剩余</span></div>
         </div>
         <div class="metric-row" id="gpu-metrics"></div>
         <div class="capacity-pools" id="gpu-pools"><div class="panel capacity-empty">登录后加载 GPU 容量</div></div>

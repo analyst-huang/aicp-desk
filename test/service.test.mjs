@@ -55,6 +55,15 @@ test("GPU capacity keeps pool free cards separate from queue quota remaining", a
           GpuModels: [{ Model: "A100", Quota: 8 }, { Model: "H800", Quota: 4 }],
           Status: { State: "normal", Allocated: { gpu: 9 }, Running: 2, Inqueue: 1 },
         }],
+        nodes: [{
+          InstanceId: "node-1", InstanceName: "Node 1", InstanceIp: "10.0.0.1", InstanceStatus: "normal", InstanceStatusName: "正常",
+          UnSchedulable: false, IsGpu: true, GpuType: "A100",
+          Gpu: { Allocatable: 8, Allocated: 3 }, Memory: { Allocatable: 512, Allocated: 128 }, Cpu: { Allocatable: 96, Allocated: 40 },
+        }, {
+          InstanceId: "node-2", InstanceName: "Node 2", InstanceIp: "10.0.0.2", InstanceStatus: "normal", InstanceStatusName: "正常",
+          UnSchedulable: true, IsGpu: false,
+          Gpu: { Allocatable: 0, Allocated: 0 }, Memory: { Allocatable: 256, Allocated: 200 }, Cpu: { Allocatable: 48, Allocated: 48 },
+        }],
       }],
     }),
   });
@@ -65,6 +74,13 @@ test("GPU capacity keeps pool free cards separate from queue quota remaining", a
   assert.equal(capacity.pools[0].queues[0].allocatedGpu, 9);
   assert.equal(capacity.pools[0].queues[0].remainingGpu, 3);
   assert.equal(capacity.pools[0].queues[0].allowBorrowing, true);
+  assert.equal(capacity.summary.nodeCount, 2);
+  assert.equal(capacity.summary.gpuNodeCount, 1);
+  assert.equal(capacity.pools[0].nodes[0].gpuModel, "A100");
+  assert.equal(capacity.pools[0].nodes[0].remainingGpu, 5);
+  assert.equal(capacity.pools[0].nodes[0].remainingMemoryGiB, 384);
+  assert.equal(capacity.pools[0].nodes[0].remainingCpu, 56);
+  assert.equal(capacity.pools[0].nodes[1].schedulable, false);
 });
 
 test("prepare train variables applies nested overrides", async () => {

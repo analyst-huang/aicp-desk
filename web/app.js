@@ -292,13 +292,33 @@ function renderGpuPools(pools) {
         <td>${statusPill(queue.state || "unknown")}</td>
       </tr>`;
     }).join("");
+    const nodeCards = pool.nodes.map((node) => {
+      const nodeStatus = node.schedulable
+        ? `<span class="status running">${escapeHtml(node.statusName || node.status || "正常")}</span>`
+        : '<span class="status failed">不可调度</span>';
+      const gpuModel = node.gpuModel
+        ? `<span class="capacity-model">${escapeHtml(node.gpuModel)}</span>`
+        : '<span class="capacity-model cpu">CPU 节点</span>';
+      return `<article class="capacity-node-card">
+        <header><div><strong>${escapeHtml(node.name || "-")}</strong><code class="node-ip">${escapeHtml(node.ip || "-")}</code></div>${nodeStatus}</header>
+        <div class="capacity-node-meta">${gpuModel}<small title="${escapeHtml(node.id)}">${escapeHtml(node.id)}</small></div>
+        <dl class="capacity-node-stats">
+          <div><dt>GPU 剩余</dt><dd>${escapeHtml(node.remainingGpu)}<small> / ${escapeHtml(node.allocatableGpu)} 卡</small></dd></div>
+          <div><dt>内存剩余</dt><dd>${escapeHtml(node.remainingMemoryGiB)}<small> / ${escapeHtml(node.allocatableMemoryGiB)} GiB</small></dd></div>
+          <div><dt>CPU 剩余</dt><dd>${escapeHtml(node.remainingCpu)}<small> / ${escapeHtml(node.allocatableCpu)} 核</small></dd></div>
+        </dl>
+      </article>`;
+    }).join("");
     return `<article class="panel capacity-pool">
       <header class="capacity-pool-head">
         <div><p class="eyebrow">Resource pool · ${escapeHtml(pool.type || "-")}</p><h3>${escapeHtml(pool.name || pool.id)}</h3><small>${escapeHtml(pool.id)}</small></div>
         <div class="capacity-pool-total"><span>物理 GPU 剩余</span><strong>${escapeHtml(pool.freeGpu)}<small> / ${escapeHtml(pool.totalGpu)} 卡</small></strong><progress max="${escapeHtml(max)}" value="${escapeHtml(pool.freeGpu)}"></progress><p>已分配 ${escapeHtml(pool.assignedGpu)} · 不可用 ${escapeHtml(pool.unavailableGpu)}</p></div>
       </header>
+      <div class="capacity-section-head"><div><h4>节点实时容量</h4><p>按 GPU 剩余、内存剩余排序；适合 Agent 在启动实验前选机。</p></div><span>${escapeHtml(pool.nodes.length)} 台</span></div>
+      <div class="capacity-node-table capacity-node-grid">${nodeCards || '<div class="empty">该资源组没有节点</div>'}</div>
+      <div class="capacity-section-head queue"><div><h4>队列配额</h4><p>配额口径与物理节点容量分开显示。</p></div><span>${escapeHtml(pool.queues.length)} 个</span></div>
       <div class="table-wrap"><table><thead><tr><th>队列</th><th>型号与配额</th><th>总配额</th><th>已分配</th><th>配额剩余</th><th>借用</th><th>状态</th></tr></thead><tbody>${queueRows || '<tr><td colspan="7" class="empty">该资源组没有队列</td></tr>'}</tbody></table></div>
-      <p class="capacity-note">队列“配额剩余”不等于当前一定可调度的物理卡数；允许借用时，最终可申请量仍受资源组物理剩余和单节点碎片影响。</p>
+      <p class="capacity-note">节点剩余 = 可分配 - 已分配，内存单位为 GiB。队列“配额剩余”不等于当前一定可调度的物理卡数；允许借用时，最终可申请量仍受资源组物理剩余、GPU 型号和单节点碎片影响。</p>
     </article>`;
   }).join("");
 }
@@ -309,19 +329,19 @@ async function loadGpu({ background = false } = {}) {
   const container = $("#gpu-pools");
   if (!state.session.profileExists) {
     state.gpuCapacity = null;
-    $("#gpu-metrics").innerHTML = metric("资源组", "—") + metric("物理 GPU 剩余", "—") + metric("物理 GPU 总量", "—") + metric("GPU 队列", "—");
+    $("#gpu-metrics").innerHTML = metric("资源组", "—") + metric("物理 GPU 剩余", "—") + metric("物理 GPU 总量", "—") + metric("节点", "—");
     container.innerHTML = '<div class="panel capacity-empty">请先点击右上角“登录 / 更新会话”</div>';
     state.gpuLoading = false;
     return;
   }
   if (!background) {
-    $("#gpu-metrics").innerHTML = metric("资源组", "…") + metric("物理 GPU 剩余", "…") + metric("物理 GPU 总量", "…") + metric("GPU 队列", "…");
-    container.innerHTML = '<div class="panel capacity-empty"><div class="skeleton"></div>正在读取资源组和队列容量……</div>';
+    $("#gpu-metrics").innerHTML = metric("资源组", "…") + metric("物理 GPU 剩余", "…") + metric("物理 GPU 总量", "…") + metric("节点", "…");
+    container.innerHTML = '<div class="panel capacity-empty"><div class="skeleton"></div>正在读取资源组、队列和节点容量……</div>';
   }
   try {
     state.gpuCapacity = await api("/api/gpu");
     const summary = state.gpuCapacity.summary;
-    $("#gpu-metrics").innerHTML = metric("资源组", summary.poolCount, "个") + metric("物理 GPU 剩余", summary.freeGpu, "卡") + metric("物理 GPU 总量", summary.totalGpu, "卡") + metric("GPU 队列", summary.gpuQueueCount, "个");
+    $("#gpu-metrics").innerHTML = metric("资源组", summary.poolCount, "个") + metric("物理 GPU 剩余", summary.freeGpu, "卡") + metric("物理 GPU 总量", summary.totalGpu, "卡") + metric("节点", summary.nodeCount, `台 · ${summary.gpuNodeCount} 台 GPU`);
     container.innerHTML = renderGpuPools(state.gpuCapacity.pools);
     markResourceRefresh();
   } catch (error) {

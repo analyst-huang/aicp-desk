@@ -22,7 +22,7 @@ AICP 本地控制工具
   aicp gui [--no-open] [--port 17863]  启动可视化控制台
 
 GPU 容量
-  aicp gpu [--json] [--region REGION]  查看资源组与队列剩余 GPU
+  aicp gpu [--json] [--region REGION]  查看资源组、队列与逐节点剩余资源
 
 开发机
   aicp dev list [--mine] [--json]
@@ -102,6 +102,16 @@ async function handleGpu(context, args) {
     remaining: queue.remainingGpu ?? "-",
     borrowing: queue.allowBorrowing ? "是" : "否",
   })));
+  const nodeRows = capacity.pools.flatMap((pool) => pool.nodes.map((node) => ({
+    pool: pool.name,
+    node: node.name || "-",
+    ip: node.ip || "-",
+    status: node.schedulable ? (node.statusName || node.status || "正常") : "不可调度",
+    model: node.gpuModel || "CPU",
+    gpu: `${node.remainingGpu}/${node.allocatableGpu}`,
+    memory: `${node.remainingMemoryGiB}/${node.allocatableMemoryGiB}`,
+    cpu: `${node.remainingCpu}/${node.allocatableCpu}`,
+  })));
   const lines = [
     `区域: ${capacity.region}`,
     `资源组物理 GPU: 剩余 ${capacity.summary.freeGpu} / 总计 ${capacity.summary.totalGpu}`,
@@ -125,6 +135,18 @@ async function handleGpu(context, args) {
       { key: "allocated", label: "已分配" },
       { key: "remaining", label: "配额剩余" },
       { key: "borrowing", label: "允许借用" },
+    ]),
+    "",
+    "节点（剩余 = 可分配 - 已分配；内存单位为 GiB）",
+    formatTable(nodeRows, [
+      { key: "pool", label: "资源组" },
+      { key: "node", label: "机器" },
+      { key: "ip", label: "节点IP" },
+      { key: "status", label: "调度状态" },
+      { key: "model", label: "GPU型号" },
+      { key: "gpu", label: "GPU剩余/可分配" },
+      { key: "memory", label: "内存剩余/可分配" },
+      { key: "cpu", label: "CPU剩余/可分配" },
     ]),
   ];
   return print(lines.join("\n"));

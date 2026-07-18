@@ -1,6 +1,6 @@
 {
   "name": "aicp-desk",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "跨平台的金山云星流本地 CLI 与可视化控制台",
   "type": "module",

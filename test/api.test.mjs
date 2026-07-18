@@ -263,12 +263,38 @@ test("GPU capacity combines native resource-pool totals with unfiltered queues",
       if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool", ResourcePoolName: "Pool" }] } };
       if (operation === "DescribeGpuInfo") return { DescribeGpuInfo: { Gpu: { Num: 16, FreeGpuNum: 5, AssignedGpuNum: 11 } } };
       if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue", Name: "gpu-queue" }] } };
+      if (operation === "DescribeResourcePoolInstances") return { DescribeResourcePoolInstances: {
+        TotalCount: 1,
+        ResourcePoolInstanceSet: [{ InstanceId: "node", InstanceName: "Node", Gpu: { Allocatable: 8, Allocated: 3 }, Memory: { Allocatable: 512, Allocated: 128 } }],
+      } };
       throw new Error(`unexpected operation ${operation}`);
     },
   });
   const result = await new AicpApi(browser, { region: "region-1" }).gpuCapacity();
   assert.equal(result.groups[0].gpu.FreeGpuNum, 5);
   assert.equal(result.groups[0].queues[0].Name, "gpu-queue");
+  assert.equal(result.groups[0].nodes[0].InstanceName, "Node");
   const queueCall = calls.find((call) => call.operation === "DescribeClusterQueue");
   assert.equal("WorkloadType" in queueCall.variables, false);
+});
+
+test("resource-pool instances are collected across native page responses", async () => {
+  const calls = [];
+  const browser = withLease({
+    launchHeadless: async () => ({ spawned: true }),
+    closeActiveBrowser: async () => {},
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      return { DescribeResourcePoolInstances: {
+        TotalCount: 3,
+        ResourcePoolInstanceSet: variables.Page === 1
+          ? [{ InstanceId: "one" }, { InstanceId: "two" }]
+          : [{ InstanceId: "three" }],
+      } };
+    },
+  });
+  const nodes = await new AicpApi(browser, { region: "region-1" }).listResourcePoolInstances("pool");
+  assert.deepEqual(nodes.map((item) => item.InstanceId), ["one", "two", "three"]);
+  assert.deepEqual(calls.map((call) => call.variables.Page), [1, 2]);
+  assert.equal(calls[0].variables.PageSize, 100);
 });
