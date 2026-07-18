@@ -14,6 +14,8 @@ if [ -n "${container:-}" ] || [ -n "${KUBERNETES_SERVICE_HOST:-}" ] || [ -e /.do
   CONTAINER_DETECTED=1
 elif [ -r /proc/1/cgroup ] && grep -Eqi '(docker|kubepods|containerd|libpod|podman|lxc)' /proc/1/cgroup; then
   CONTAINER_DETECTED=1
+elif [ -r /proc/1/cmdline ] && tr '\000' ' ' < /proc/1/cmdline | grep -Fq '/kaic/webide/supervisord'; then
+  CONTAINER_DETECTED=1
 fi
 
 if [ "$USER_ID" -eq 0 ]; then
@@ -297,7 +299,13 @@ require_private_file() {
   if [ ! -e "$STAGING/rootfs/$1" ]; then printf 'Private runtime is incomplete; missing: %s\n' "$1" >&2; exit 1; fi
 }
 [ -n "$EDGE_COMMAND" ] || require_private_file opt/microsoft/msedge/msedge
-if [ -z "$XVFB_COMMAND" ]; then require_private_file usr/bin/Xvfb; require_private_file usr/share/X11/xkb; fi
+if [ -z "$XVFB_COMMAND" ]; then
+  require_private_file usr/bin/Xvfb
+  if [ ! -e "$STAGING/rootfs/usr/share/X11/xkb" ] && [ ! -e /usr/share/X11/xkb ]; then
+    printf 'Private Xvfb needs XKB data, but neither the private runtime nor /usr/share/X11/xkb provides it.\n' >&2
+    exit 1
+  fi
+fi
 [ -n "$X11VNC_COMMAND" ] || require_private_file usr/bin/x11vnc
 [ -n "$WINDOW_MANAGER_COMMAND" ] || require_private_file usr/bin/openbox
 [ -n "$WEBSOCKIFY_COMMAND" ] || require_private_file usr/bin/websockify
@@ -349,7 +357,9 @@ if [ -z "$XVFB_COMMAND" ]; then printf '%s\n' \
   'PRIVATE_LIBS="$ROOTFS/usr/lib/x86_64-linux-gnu:$ROOTFS/lib/x86_64-linux-gnu:$ROOTFS/usr/lib:$ROOTFS/lib"' \
   'export LD_LIBRARY_PATH="$PRIVATE_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' \
   'export PATH="$ROOTFS/usr/bin:$PATH"' \
-  'exec "$ROOTFS/usr/bin/Xvfb" "$@" -xkbdir "$ROOTFS/usr/share/X11/xkb"' \
+  'XKB_DIR="$ROOTFS/usr/share/X11/xkb"' \
+  'if [ ! -e "$XKB_DIR" ]; then XKB_DIR=/usr/share/X11/xkb; fi' \
+  'exec "$ROOTFS/usr/bin/Xvfb" "$@" -xkbdir "$XKB_DIR"' \
   > "$STAGING/bin/Xvfb"
 chmod 0755 "$STAGING/bin/Xvfb"
 fi

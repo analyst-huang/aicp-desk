@@ -65,6 +65,8 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   assert.match(dependencyInstaller, /EDGE_CACHE_FILE/);
   assert.match(dependencyInstaller, /XDG_CONFIG_HOME/);
   assert.match(dependencyInstaller, /dpkg-query/);
+  assert.match(dependencyInstaller, /\/kaic\/webide\/supervisord/);
+  assert.match(dependencyInstaller, /XKB_DIR=\/usr\/share\/X11\/xkb/);
   assert.match(dependencyInstaller, /CONTAINER_DETECTED/);
   assert.match(dependencyInstaller, /RUNTIME_MODE=root-container/);
   assert.match(dependencyInstaller, /AICP_ALLOW_ROOT/);

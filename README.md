@@ -236,6 +236,7 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime/
 
 - 非 root：使用 `user-sandbox`；环境 Edge 使用自身的正常沙箱，私有 Edge 使用 Linux 非特权用户命名空间沙箱。
 - 检测到容器内 root：自动使用 `root-container`，写入 `root-model` 与 `allow-no-sandbox` 标记；Edge 必须以 `--no-sandbox` 运行。
+- KAIC WebIDE 镜像即使隐藏了 Docker/Kubernetes 标准标记，也会通过 PID 1 的 KAIC `supervisord` 路径识别为容器。
 - 裸机 root：默认拒绝，避免误判。确认它确实处于受控隔离环境时才显式运行 `aicp remote-ui install --allow-root --yes`。
 
 安装末尾会实际启动一次无界面 Edge 做冒烟验证，失败时不会替换旧运行时。非 root 环境如果内核禁用了用户命名空间，仅在可信、专用且与其他用户隔离的服务器上，可以明确接受风险后使用：
@@ -362,6 +363,7 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | 安装仍然准备下载很多包 | 查看安装开头的 component plan，并运行 `aicp remote-ui doctor` 查看实际路径；环境组件必须能通过 `PATH` 或文档中的常见目录找到。已有私有副本会显示为 `private (cached)`。 |
 | Edge 下载长时间没有反馈 | v0.13.2 起 Edge 主包会显示进度并自动重试；请确认能访问 `packages.microsoft.com`。启动验证最多等待 30 秒，失败或超时会打印最后 30 行 Edge 输出。 |
 | Edge 报 `crashpad`、`--database is required` 或 `$HOME/.config` 不可写 | AICP 会使用自己的 `edge-config/`，不再依赖用户的 `$HOME/.config`。重新安装或升级到 v0.13.2。 |
+| 提示私有 Xvfb 缺少 XKB 数据 | v0.13.3 起会复用主机的 `/usr/share/X11/xkb`，仅在主机也缺失时才要求私有 `xkb-data`。 |
 | `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
 | 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |
 | VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
