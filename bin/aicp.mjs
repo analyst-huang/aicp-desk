@@ -464,6 +464,9 @@ async function main() {
       }
       print({ remoteUi: status, browser }, true);
       printRemoteUiAccess(status);
+      if (status.resumed && browser.alreadyRunning) {
+        return print("远端 VNC 入口已恢复，并继续使用原来的 Edge 登录会话，无需重新 MFA。");
+      }
       return print("请在 VS Code 的“端口”面板转发上面的网页端口，然后打开登录地址完成 MFA。完成后可运行 aicp remote-ui stop --yes 关闭 VNC 入口并保留后台登录会话。");
     }
     const result = await context.browser.launchLogin();
