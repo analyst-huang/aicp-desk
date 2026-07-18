@@ -41,25 +41,54 @@ RUNTIME="$ROOT/runtime"
 STAGING="$ROOT/.runtime.$$.tmp"
 DOWNLOADS=$(mktemp -d)
 COMMITTED=0
+RUNTIME_MOVED=0
 
 case "$ROOT" in
   ""|/|"$HOME") printf 'Unsafe AICP installation root: %s\n' "$ROOT" >&2; exit 1 ;;
 esac
 
 cleanup() {
+  if [ "$COMMITTED" -eq 0 ]; then
+    if [ "$RUNTIME_MOVED" -eq 1 ]; then
+      if [ ! -e "$RUNTIME" ] && [ -e "$STAGING" ]; then
+        mv "$STAGING" "$RUNTIME"
+        for metadata_name in manifest.txt root-model allow-no-sandbox; do
+          rm -f "$RUNTIME/$metadata_name"
+          if [ -e "$DOWNLOADS/previous-metadata/$metadata_name" ]; then
+            cp -p "$DOWNLOADS/previous-metadata/$metadata_name" "$RUNTIME/$metadata_name"
+          fi
+        done
+        printf 'Restored the previous AICP runtime after an interrupted or failed update.\n' >&2
+      elif [ -e "$STAGING" ]; then
+        printf 'Preserved recovery runtime because the target path is occupied: %s\n' "$STAGING" >&2
+      fi
+    else
+      rm -rf "$STAGING"
+    fi
+  fi
   rm -rf "$DOWNLOADS"
-  if [ "$COMMITTED" -eq 0 ]; then rm -rf "$STAGING"; fi
 }
 trap cleanup EXIT HUP INT TERM
 
-mkdir -p "$ROOT" "$STAGING/rootfs" "$STAGING/bin" "$DOWNLOADS/debs"
-
-# Keep a previously downloaded private fallback so reinstalling does not need
-# to fetch it again. Environment components still win at runtime.
-if [ -d "$RUNTIME" ]; then
-  cp -a "$RUNTIME/." "$STAGING/"
-  rm -f "$STAGING/root-model" "$STAGING/allow-no-sandbox" "$STAGING/manifest.txt"
+mkdir -p "$ROOT" "$DOWNLOADS/debs"
+if [ -e "$STAGING" ]; then
+  printf 'Refusing to overwrite an unexpected transaction directory: %s\n' "$STAGING" >&2
+  exit 1
 fi
+
+# Move an existing runtime into the transaction instead of copying a large
+# private rootfs (especially expensive on NFS). The trap restores it on error.
+if [ -e "$RUNTIME" ]; then
+  mkdir -p "$DOWNLOADS/previous-metadata"
+  for metadata_name in manifest.txt root-model allow-no-sandbox; do
+    if [ -e "$RUNTIME/$metadata_name" ]; then cp -p "$RUNTIME/$metadata_name" "$DOWNLOADS/previous-metadata/$metadata_name"; fi
+  done
+  mv "$RUNTIME" "$STAGING"
+  RUNTIME_MOVED=1
+else
+  mkdir -p "$STAGING"
+fi
+mkdir -p "$STAGING/rootfs" "$STAGING/bin"
 
 external_command() {
   candidate=$(command -v "$1" 2>/dev/null || true)
@@ -95,12 +124,12 @@ PRIVATE_X11VNC=0
 PRIVATE_WINDOW_MANAGER=0
 PRIVATE_WEBSOCKIFY=0
 PRIVATE_NOVNC=0
-[ -x "$RUNTIME/bin/microsoft-edge-stable" ] && [ -x "$RUNTIME/rootfs/opt/microsoft/msedge/msedge" ] && PRIVATE_EDGE=1
-[ -x "$RUNTIME/bin/Xvfb" ] && [ -e "$RUNTIME/rootfs/usr/share/X11/xkb" ] && PRIVATE_XVFB=1
-[ -x "$RUNTIME/bin/x11vnc" ] && PRIVATE_X11VNC=1
-[ -x "$RUNTIME/bin/openbox" ] && PRIVATE_WINDOW_MANAGER=1
-[ -x "$RUNTIME/bin/websockify" ] && PRIVATE_WEBSOCKIFY=1
-[ -e "$RUNTIME/rootfs/usr/share/novnc/vnc.html" ] && PRIVATE_NOVNC=1
+[ -x "$STAGING/bin/microsoft-edge-stable" ] && [ -x "$STAGING/rootfs/opt/microsoft/msedge/msedge" ] && PRIVATE_EDGE=1
+[ -x "$STAGING/bin/Xvfb" ] && { [ -e "$STAGING/rootfs/usr/share/X11/xkb" ] || [ -e /usr/share/X11/xkb ]; } && PRIVATE_XVFB=1
+[ -x "$STAGING/bin/x11vnc" ] && PRIVATE_X11VNC=1
+[ -x "$STAGING/bin/openbox" ] && PRIVATE_WINDOW_MANAGER=1
+[ -x "$STAGING/bin/websockify" ] && PRIVATE_WEBSOCKIFY=1
+[ -e "$STAGING/rootfs/usr/share/novnc/vnc.html" ] && PRIVATE_NOVNC=1
 
 MISSING_SEED_PACKAGES=""
 [ -n "$XVFB_COMMAND" ] || [ "$PRIVATE_XVFB" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES xvfb"
@@ -160,10 +189,10 @@ fi
 EDGE_FILENAME=environment
 if [ "$PRIVATE_EDGE" -eq 1 ]; then
   EDGE_FILENAME=""
-  if [ -r "$RUNTIME/manifest.txt" ]; then
+  if [ -r "$DOWNLOADS/previous-metadata/manifest.txt" ]; then
     while IFS='=' read -r manifest_key manifest_value; do
       if [ "$manifest_key" = "edge_package" ]; then EDGE_FILENAME=$manifest_value; break; fi
-    done < "$RUNTIME/manifest.txt"
+    done < "$DOWNLOADS/previous-metadata/manifest.txt"
   fi
   EDGE_FILENAME=${EDGE_FILENAME:-cached}
 fi
@@ -375,6 +404,7 @@ if [ -z "$WEBSOCKIFY_COMMAND" ]; then printf '%s\n' \
 chmod 0755 "$STAGING/bin/websockify"
 fi
 
+rm -f "$STAGING/root-model" "$STAGING/allow-no-sandbox"
 if [ "$ROOT_MODEL" -eq 1 ]; then
   : > "$STAGING/root-model"
   : > "$STAGING/allow-no-sandbox"

@@ -230,7 +230,7 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime/
 └── root-model / allow-no-sandbox  # 仅 root-container 模式存在
 ```
 
-如果设置了 `AICP_INSTALL_DIR`，则位于 `$AICP_INSTALL_DIR/runtime`，Edge 下载缓存位于 `$AICP_INSTALL_DIR/cache/edge`。重新运行脚本会复制并复用已有私有组件，在临时目录补齐和验证，成功后再替换旧版本；普通的 `install.sh` 升级只替换 `app/`，也会保留现有 `runtime/` 和缓存。运行时解析始终把环境路径放在私有目录之前，所以之后在环境中安装的组件会自动优先使用。
+如果设置了 `AICP_INSTALL_DIR`，则位于 `$AICP_INSTALL_DIR/runtime`，Edge 下载缓存位于 `$AICP_INSTALL_DIR/cache/edge`。重新运行脚本会把已有运行时原子改名为事务目录，在原目录补齐和验证，成功后原子提交；失败、TERM 或 INT 会自动改名恢复。这样缓存重装不会在 NFS 上复制整个私有 rootfs。安装事务期间 `runtime/` 会短暂不可用，不要并发启动远端 UI。普通的 `install.sh` 升级只替换 `app/`，会保留现有 `runtime/` 和缓存。运行时解析始终把环境路径放在私有目录之前，所以之后在环境中安装的组件会自动优先使用。
 
 安装器会先读取当前 UID，并检查 `/.dockerenv`、`/run/.containerenv`、Kubernetes 环境变量和 cgroup：
 

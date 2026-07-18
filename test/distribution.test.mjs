@@ -67,6 +67,9 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   assert.match(dependencyInstaller, /dpkg-query/);
   assert.match(dependencyInstaller, /\/kaic\/webide\/supervisord/);
   assert.match(dependencyInstaller, /XKB_DIR=\/usr\/share\/X11\/xkb/);
+  assert.match(dependencyInstaller, /Restored the previous AICP runtime/);
+  assert.match(dependencyInstaller, /mv "\$RUNTIME" "\$STAGING"/);
+  assert.doesNotMatch(dependencyInstaller, /cp -a "\$RUNTIME\/\."/);
   assert.match(dependencyInstaller, /CONTAINER_DETECTED/);
   assert.match(dependencyInstaller, /RUNTIME_MODE=root-container/);
   assert.match(dependencyInstaller, /AICP_ALLOW_ROOT/);
