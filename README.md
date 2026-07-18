@@ -28,13 +28,13 @@ AICP Desk 是一个运行在本机的金山云星流（AICP）控制工具，同
 | --- | --- | --- |
 | Windows（仍受 Node.js 22 与 Edge 支持的版本） | 支持 | `install.ps1` |
 | macOS（Intel / Apple Silicon） | 支持 | `install.sh` |
-| Linux（发行版需能安装 Microsoft Edge） | 支持 | `install.sh` |
-| Linux 无桌面环境（amd64/x86_64） | 支持 CLI 和远端登录；GUI 用 `--no-open` 后转发端口访问 | `install.sh` |
+| Linux（发行版需能运行 Microsoft Edge） | 支持 | `install.sh` |
+| Linux 无桌面环境（Debian/Ubuntu amd64） | 支持 AICP 私有运行时和远端登录；不安装系统包 | `install.sh` |
 
 所有平台均需要：
 
 1. [Node.js](https://nodejs.org/) 22 或更高版本。
-2. [Microsoft Edge](https://www.microsoft.com/edge/download)。
+2. 桌面环境需要 [Microsoft Edge](https://www.microsoft.com/edge/download)；Debian/Ubuntu 无显示器服务器可由 AICP 下载私有 Edge，无需系统安装。
 3. 可访问金山云登录页和星流控制台的网络。
 
 检查 Node.js：
@@ -195,24 +195,44 @@ aicp config set edgePath "C:\Program Files (x86)\Microsoft\Edge\Application\msed
 - Node.js 22 或更高版本。
 - 以普通用户运行 AICP Desk；不要使用 `sudo aicp ...` 或 root 用户启动 Edge。
 - 服务器能访问 `packages.microsoft.com`、金山云登录页和 AICP 控制台。
+- 主机提供 Debian/Ubuntu 自带的 `apt-get`、`apt-cache`、`dpkg-deb`、`curl`、`gzip`、`python3` 等基础命令；脚本只用它们下载和解包，不安装软件包。
 - `AICP_HOME` 位于该用户的持久、私有磁盘目录。不要放在会被任务结束时清空的临时目录。
 
-从仓库运行一次依赖安装脚本。它会配置 Microsoft 官方 Edge APT 仓库，并安装 Edge、Xvfb、x11vnc、noVNC、websockify 和 openbox：
+从仓库运行一次依赖安装脚本。它会把 Edge、Xvfb、x11vnc、noVNC、websockify、openbox 及所需共享库下载并解包到 AICP 私有运行时。它不会执行 `sudo`、`apt-get install` 或 `dpkg -i`，不会添加系统 APT 源，也不会写入 `/usr`、`/opt`、`/etc` 和系统包数据库：
 
 ```bash
-chmod +x scripts/install-remote-ui-debian.sh install.sh
-./scripts/install-remote-ui-debian.sh
+chmod +x install.sh
 ./install.sh --no-shortcut
 export PATH="$HOME/.local/bin:$PATH"
+aicp remote-ui install --yes
 ```
 
-如果 AICP Desk 已经安装，脚本也位于：
+如果 AICP Desk 已经安装，只需执行 `aicp remote-ui install --yes`。底层脚本也位于：
 
 ```text
 ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app/scripts/install-remote-ui-debian.sh
 ```
 
-其他 Linux 发行版需要用自己的包管理器安装同名组件，然后用 `aicp config set edgePath /path/to/microsoft-edge` 指定 Edge。当前自动安装脚本只支持 Debian/Ubuntu amd64。
+私有运行时默认位于：
+
+```text
+${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime/
+├── bin/       # AICP 使用的私有启动包装器
+├── rootfs/    # 只对 AICP 可见的 Edge、Xvfb、noVNC 和库文件
+└── manifest.txt
+```
+
+如果设置了 `AICP_INSTALL_DIR`，则位于 `$AICP_INSTALL_DIR/runtime`。重新运行脚本会在临时目录构建并验证新运行时，成功后再替换旧版本；普通的 `install.sh` 升级只替换 `app/`，会保留现有 `runtime/`。
+
+因为私有 Edge 不是 root 所有，不能使用系统级的 setuid sandbox；包装器会改用 Linux 非特权用户命名空间沙箱，安装末尾还会实际启动一次无界面 Edge 做冒烟验证。如果服务器内核禁用了非特权用户命名空间，安装会安全失败且不会替换旧运行时。仅在可信、专用且与其他用户隔离的服务器上，可以明确接受风险后使用：
+
+```bash
+aicp remote-ui install --allow-no-sandbox --yes
+```
+
+这个选项会在私有运行时中留下 `allow-no-sandbox` 标记；不要在多人共享或运行不可信网页的服务器上使用。
+
+当前自动私有运行时只支持 Debian/Ubuntu amd64。其他发行版仍可手工提供 Edge 和相关组件，但脚本不会为了兼容而修改系统软件。
 
 ### 2. 让 Agent 先做只读自检
 
@@ -220,10 +240,10 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app/scripts/install-remote-ui-debi
 aicp remote-ui doctor
 ```
 
-输出中的 `ready` 必须为 `true`。如果为 `false`，命令会返回非零退出码，`problems` 会列出缺少的程序或 noVNC 网页目录，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
+输出中的 `ready` 必须为 `true`；`privateRuntime.path` 会显示实际私有安装目录，`privateRuntime.installed` 表示清单是否存在。如果 `ready` 为 `false`，命令会返回非零退出码，`problems` 会列出缺少的程序或 noVNC 网页目录，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
 
 ```bash
-aicp login --remote-ui --web-root /opt/noVNC --yes
+aicp login --remote-ui --web-root "$HOME/private-noVNC" --yes
 ```
 
 ### 3. 启动登录界面并转发打印出的端口
@@ -287,9 +307,9 @@ Agent 可以负责安装、启动和验证，但手机验证码必须由用户�
 
 ```bash
 # 在克隆的仓库中执行；系统依赖只需安装一次
-./scripts/install-remote-ui-debian.sh
 ./install.sh --no-shortcut
 export PATH="$HOME/.local/bin:$PATH"
+aicp remote-ui install --yes
 
 # 不修改云端资源的检查
 aicp remote-ui doctor
@@ -320,8 +340,8 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 
 | 现象 | 处理方式 |
 | --- | --- |
-| `ready: false` 或提示缺少 Xvfb/noVNC | 运行 `scripts/install-remote-ui-debian.sh`，再执行 `aicp remote-ui doctor`。 |
-| 提示找不到 noVNC 网页 | 查找包含 `vnc.html` 的目录，并用 `--web-root` 指定。Debian/Ubuntu 通常是 `/usr/share/novnc`。 |
+| `ready: false` 或提示缺少 Xvfb/noVNC | 运行 `aicp remote-ui install --yes`，再执行 `doctor`；不需要 `sudo apt install`。 |
+| 提示找不到 noVNC 网页 | 重新运行私有安装脚本；默认文件位于 `runtime/rootfs/usr/share/novnc`。自定义安装可用 `--web-root` 指定。 |
 | `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
 | 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |
 | VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
@@ -602,6 +622,8 @@ AICP_HOME=/secure/path/aicp aicp session
 - `edge-profile/`：独立 Edge 登录资料和 Edge 保存的密码。
 - `remote-ui.json`：正在运行的远端画面进程与端口；执行 `aicp remote-ui stop` 后删除。
 - `remote-ui-profile.json`：标记无显示器服务器使用的密码存储模式；`logout --forget` 时删除。
+
+Linux 程序文件与私有远端运行时不在上述状态目录中，分别位于 `${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app` 和 `${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime`。`uninstall.sh --keep-data` 会删除二者，但保留这里的配置、模板和登录资料。
 
 不要将这些数据目录加入 Git，也不要共享给其他人。
 

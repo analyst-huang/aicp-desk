@@ -89,3 +89,4 @@ case ":$PATH:" in
 esac
 printf 'First login: aicp login\n'
 printf 'Dashboard:   aicp gui\n'
+if [ "$SYSTEM" = "Linux" ]; then printf 'Private headless runtime: %s\n' "$APP/scripts/install-remote-ui-debian.sh"; fi

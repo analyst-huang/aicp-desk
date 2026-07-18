@@ -48,7 +48,13 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   assert.match(unixInstall, /bin lib web docs examples scripts/);
   assert.match(dependencyInstaller, /microsoft-edge-stable/);
   assert.match(dependencyInstaller, /xvfb x11vnc novnc websockify openbox/);
+  assert.match(dependencyInstaller, /AICP private remote UI runtime installed/);
+  assert.match(dependencyInstaller, /apt-get download/);
+  assert.doesNotMatch(dependencyInstaller, /sudo apt-get|apt-get install|dpkg -i/);
+  assert.match(dependencyInstaller, /No files were written to \/usr, \/opt, or \/etc/);
   assert.match(cli, /aicp remote-ui doctor/);
+  assert.match(cli, /aicp remote-ui install/);
+  assert.match(cli, /installRemoteUiRuntime/);
   assert.match(cli, /VS Code 转发端口/);
 });
 

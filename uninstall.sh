@@ -50,7 +50,8 @@ if [ "$SYSTEM" = "Linux" ]; then safe_remove "${XDG_DATA_HOME:-$HOME/.local/shar
 
 if [ "$KEEP_DATA" -eq 1 ]; then
   safe_remove "$ROOT/app"
-  printf 'Application removed. Templates and login data remain in: %s\n' "$DATA"
+  safe_remove "$ROOT/runtime"
+  printf 'Application and private runtime removed. Templates and login data remain in: %s\n' "$DATA"
 else
   safe_remove "$ROOT"
   if [ "$DATA" != "$ROOT" ]; then safe_remove "$DATA"; fi
