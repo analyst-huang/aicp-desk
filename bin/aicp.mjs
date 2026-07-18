@@ -42,6 +42,8 @@ GPU 容量
   aicp train stop NAME_OR_ID [--latest] [--yes]
   aicp train delete NAME_OR_ID [--latest] [--yes]
   aicp train detail NAME_OR_ID [--latest] [--json]
+  aicp train logs NAME_OR_ID [--latest] [--pod POD] [--role ROLE]
+                  [--tail 200] [--since SECONDS] [--follow] [--interval 3] [--json]
 
 模板
   aicp template list [--json]
@@ -69,6 +71,33 @@ function csv(value) {
 
 function print(value, json = false) {
   process.stdout.write(json ? jsonOutput(value) : `${value}\n`);
+}
+
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function trainingLogsText(payload) {
+  if (!payload.pods?.length) return `任务 ${payload.item.TrainJobName} 暂无 Pod，可能仍在排队或尚未启动。`;
+  if (!payload.logs?.length) return "没有符合筛选条件的训练 Pod。";
+  return payload.logs.map(({ pod, content }) => {
+    const status = pod.Status?.State || pod.Status?.ContainerState || "unknown";
+    const body = String(content ?? "").trimEnd() || "（暂无输出）";
+    return `===== ${pod.Name} · ${pod.Role || "未命名角色"} · ${status} =====\n${body}`;
+  }).join("\n\n");
+}
+
+function appendedLogText(previous, current) {
+  const before = String(previous ?? "");
+  const after = String(current ?? "");
+  if (!after || after === before) return "";
+  if (!before) return after;
+  if (after.startsWith(before)) return after.slice(before.length);
+  for (const size of [4096, 2048, 1024, 512, 256, 128, 64, 32]) {
+    if (before.length < size) continue;
+    const marker = before.slice(-size);
+    const index = after.lastIndexOf(marker);
+    if (index >= 0) return after.slice(index + marker.length);
+  }
+  return after;
 }
 
 async function handleConfig(positionals) {
@@ -288,6 +317,45 @@ async function handleTrain(context, action, args) {
       ...(commands.length ? commands.flatMap((command) => [`[${command.label}]`, command.value, ""]) : ["未配置显式命令（可能使用镜像默认启动命令）"]),
     ];
     return print(lines.join("\n"));
+  }
+  if (action === "logs" && selector) {
+    if (options.follow && options.json) throw new Error("--follow 不能与 --json 同时使用；持续输出请使用纯文本模式");
+    const interval = Number(options.interval ?? 3);
+    if (!Number.isFinite(interval) || interval < 1 || interval > 60) throw new Error("--interval 必须是 1 到 60 之间的秒数");
+    const logOptions = {
+      latest: Boolean(options.latest),
+      region: options.region,
+      pod: options.pod,
+      role: options.role,
+      tailLines: options.tail,
+      sinceSeconds: options.since,
+    };
+    const run = async () => {
+      let payload = await context.service.trainingLogs(selector, logOptions);
+      if (options.json) return print(redact(payload), true);
+      print(trainingLogsText(payload));
+      if (!options.follow) return;
+      const previous = new Map(payload.logs.map((entry) => [entry.pod.Name, String(entry.content ?? "")]));
+      let following = true;
+      const stopFollowing = () => { following = false; };
+      process.once("SIGINT", stopFollowing);
+      try {
+        while (following) {
+          await delay(interval * 1000);
+          if (!following) break;
+          payload = await context.service.trainingLogs(selector, logOptions);
+          for (const entry of payload.logs) {
+            const current = String(entry.content ?? "");
+            const addition = appendedLogText(previous.get(entry.pod.Name), current).replace(/^\r?\n/, "");
+            previous.set(entry.pod.Name, current);
+            if (addition) print(`\n===== ${entry.pod.Name} · ${entry.pod.Role || "未命名角色"} =====\n${addition.trimEnd()}`);
+          }
+        }
+      } finally {
+        process.off("SIGINT", stopFollowing);
+      }
+    };
+    return options.follow ? context.browser.withBrowser(run) : run();
   }
   if (!["start", "stop", "delete"].includes(action) || !selector) throw new Error(`未知训练命令：${action || "（空）"}`);
   const resolveOptions = { latest: Boolean(options.latest), region: options.region };

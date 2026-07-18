@@ -219,6 +219,43 @@ test("training detail returns task-level and role commands", async () => {
   assert.equal(payload.detail.Roles[0].RunCommand, "python train.py");
 });
 
+test("training logs enumerate pods and read native output", async () => {
+  const calls = [];
+  const service = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", ResourcePoolId: "pool", JobStatus: { Status: "running" } }] }),
+    trainJobDetail: async () => ({ TrainJobId: "kaic-job", ClusterId: "cluster", ResourcePoolId: "pool" }),
+    trainJobPods: async (jobName, options) => {
+      calls.push({ type: "pods", jobName, options });
+      return { Pods: [
+        { Name: "master-0", Role: "Master", Status: { State: "running" } },
+        { Name: "worker-0", Role: "Worker", Status: { State: "running" } },
+      ] };
+    },
+    trainJobLog: async (jobName, podName, options) => {
+      calls.push({ type: "log", jobName, podName, options });
+      return { RequestId: `request-${podName}`, PodLogs: `output from ${podName}` };
+    },
+  });
+  const payload = await service.trainingLogs("job", { role: "worker", tailLines: 500, sinceSeconds: 60 });
+  assert.equal(payload.pods.length, 2);
+  assert.equal(payload.logs.length, 1);
+  assert.equal(payload.logs[0].pod.Name, "worker-0");
+  assert.equal(payload.logs[0].content, "output from worker-0");
+  assert.equal(calls.at(-1).options.clusterId, "cluster");
+  assert.equal(calls.at(-1).options.tailLines, 500);
+  assert.equal(calls.at(-1).options.sinceSeconds, 60);
+});
+
+test("training logs reject invalid limits and unknown pods", async () => {
+  const service = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", JobStatus: { Status: "running" } }] }),
+    trainJobDetail: async () => ({ TrainJobId: "kaic-job" }),
+    trainJobPods: async () => ({ Pods: [{ Name: "master-0", Role: "Master" }] }),
+  });
+  await assert.rejects(() => service.trainingLogs("job", { tailLines: 0 }), /tailLines/);
+  await assert.rejects(() => service.trainingLogs("job", { pod: "missing" }), /找不到训练 Pod/);
+});
+
 test("saving a developer image is allowed only while running", async () => {
   let saves = 0;
   const variables = { ImageName: "snapshot", ImageType: "Personal", Namespace: "ns", ImageRepo: "repo", ImageVersion: "v1", ImageDomain: "internal.example" };

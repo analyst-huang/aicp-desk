@@ -45,3 +45,14 @@ test("CLI exposes GPU capacity in human and JSON modes", async () => {
   assert.match(cli, /--only-free/);
   assert.match(cli, /--sort-gpu desc\|asc/);
 });
+
+test("CLI exposes one-shot and follow training logs", async () => {
+  const [cli, readme] = await Promise.all([read("bin/aicp.mjs"), read("README.md")]);
+  assert.match(cli, /aicp train logs NAME_OR_ID/);
+  assert.match(cli, /context\.service\.trainingLogs/);
+  assert.match(cli, /options\.follow/);
+  assert.match(cli, /options\.pod/);
+  assert.match(cli, /options\.role/);
+  assert.match(readme, /aicp train logs TRAIN_NAME_OR_ID --follow/);
+  assert.match(readme, /logs\[\]/);
+});

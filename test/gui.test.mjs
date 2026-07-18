@@ -122,6 +122,17 @@ test("training detail drawer prominently exposes task and role commands", () => 
   assert.match(styles, /#train-detail-modal \{ inset: 0 0 0 auto;/);
 });
 
+test("training detail drawer exposes refreshable pod logs", () => {
+  assert.match(script, /id="train-log-pod"/);
+  assert.match(script, /id="train-log-tail"/);
+  assert.match(script, /id="train-log-auto" checked/);
+  assert.match(script, /data-copy-train-log/);
+  assert.match(script, /data-refresh-train-log/);
+  assert.match(script, /setTimeout\(\(\) => loadTrainLogs\(\{ background: true \}\), 3000\)/);
+  assert.match(server, /\/api\/train\/logs/);
+  assert.match(styles, /\.train-log-card/);
+});
+
 test("resource pages refresh in the background every ten seconds", () => {
   assert.match(html, /id="auto-refresh-status"/);
   assert.match(script, /const AUTO_REFRESH_MS = 10_000/);

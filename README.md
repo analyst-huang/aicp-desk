@@ -13,7 +13,7 @@ AICP Desk 是一个运行在本机的金山云星流（AICP）控制工具，同
 ## 功能
 
 - 开发机：查询、创建、启动、停止、删除、保存镜像、复制公网 SSH 命令、存为模板。
-- 训练任务：查询、创建、查看运行命令、启动、停止、删除、存为模板。
+- 训练任务：查询、创建、查看运行命令和 Pod 命令行输出、启动、停止、删除、存为模板。
 - GPU 与节点容量：只读查看每个资源组的物理 GPU 总量/剩余量、队列配额，以及每台机器的 GPU 型号、可分配/已分配/剩余卡数、内存和 CPU 余量；可只看有空闲卡且可调度的节点，并按剩余卡数排序。
 - 状态自动刷新：开发机、训练任务和 GPU 容量页面每 10 秒后台刷新当前可见页面，切回页面时立即补刷；手动刷新仍然保留。
 - 原生创建选项：实时读取当前区域的镜像、资源组、开发/训练队列、GPU、存储、EIP 和 KCR 配置。
@@ -215,7 +215,7 @@ aicp gui --port 18080
 
 ### 训练任务页面
 
-点击“新建训练任务”后，可配置训练专用资源组/队列、镜像、GPU、挂载、运行命令、运行时长、自愈与保留策略。列表提供详情、启动、停止、删除和存为模板按钮。详情抽屉优先显示任务入口命令和各角色运行命令，并可一键复制；已停止、失败或成功结束的任务可在输入任务名称二次确认后删除。
+点击“新建训练任务”后，可配置训练专用资源组/队列、镜像、GPU、挂载、运行命令、运行时长、自愈与保留策略。列表提供详情、启动、停止、删除和存为模板按钮。详情抽屉优先显示任务入口命令和各角色运行命令，并可一键复制；“命令行输出”区域可选择全部或单个 Pod、调整最近行数、手动刷新、每 3 秒自动刷新并复制日志。已停止、失败或成功结束的任务可在输入任务名称二次确认后删除。
 
 ### GPU 容量页面
 
@@ -351,6 +351,25 @@ aicp train create --template baseline --name experiment-003 \
 aicp train detail TRAIN_NAME_OR_ID
 aicp train detail TRAIN_NAME_OR_ID --latest --json
 ```
+
+查看训练进程的命令行输出：
+
+```bash
+# 最近 200 行；不指定 Pod 时汇总当前所有 Pod
+aicp train logs TRAIN_NAME_OR_ID --tail 200
+
+# 持续追踪新输出，适合 Agent 监控正在运行的实验
+aicp train logs TRAIN_NAME_OR_ID --follow
+
+# 只看指定 Pod 或角色
+aicp train logs TRAIN_NAME_OR_ID --pod POD_NAME --tail 500
+aicp train logs TRAIN_NAME_OR_ID --role Worker --since 3600
+
+# 一次性结构化读取，便于 Agent 解析
+aicp train logs TRAIN_NAME_OR_ID --tail 200 --json
+```
+
+`--tail` 支持 1–10000 行，默认 200；`--since` 限定最近若干秒，最大 604800 秒；`--interval` 控制 `--follow` 的轮询间隔，默认 3 秒。训练任务重名时可添加 `--latest`。JSON 结果的 `logs[]` 中包含 Pod 信息和 `content` 原始输出，`pods[]` 列出当前所有副本。持续追踪使用纯文本流，因此 `--follow` 不与 `--json` 同时使用。
 
 启动、停止或删除：
 

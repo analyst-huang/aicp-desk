@@ -150,6 +150,25 @@ test("training create options use training queues and training official images",
   assert.equal(calls.find((call) => call.operation === "DescribeAicpImages" && call.variables.ImageSource === "Official").variables.ApplicationScenario, "训练任务");
 });
 
+test("training log APIs use native pod and tail queries", async () => {
+  const calls = [];
+  const browser = {
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      if (operation === "DescribeQueueJobPod") return { DescribeQueueJobPod: { TotalCount: 1, Pods: [{ Name: "master-0" }] } };
+      if (operation === "DescribeQueueJobLog") return { DescribeQueueJobLog: { RequestId: "request", PodLogs: "hello" } };
+      throw new Error(`unexpected operation ${operation}`);
+    },
+  };
+  const api = new AicpApi(browser, { region: "region-1" });
+  const pods = await api.trainJobPods("kaic-job", { clusterId: "cluster", resourcePoolId: "pool", limit: 25 });
+  const logs = await api.trainJobLog("kaic-job", "master-0", { clusterId: "cluster", resourcePoolId: "pool", tailLines: 200, sinceSeconds: 30 });
+  assert.equal(pods.Pods[0].Name, "master-0");
+  assert.equal(logs.PodLogs, "hello");
+  assert.deepEqual(calls[0].variables, { Region: "region-1", ClusterId: "cluster", ResourcePoolId: "pool", JobName: "kaic-job", Role: undefined, Name: undefined, State: undefined, Marker: 1, MaxResults: 25 });
+  assert.deepEqual(calls[1].variables, { Region: "region-1", ClusterId: "cluster", ResourcePoolId: "pool", JobName: "kaic-job", PodName: "master-0", SinceSeconds: 30, TailLines: 200 });
+});
+
 test("training create rejects a stale image before mutation", async () => {
   const calls = [];
   const browser = withLease({
