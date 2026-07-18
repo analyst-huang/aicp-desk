@@ -105,6 +105,13 @@ test("container detection recognizes standard runtime markers and cgroups", asyn
     existsFn: async () => false,
     readFileFn: async () => "0::/user.slice/user-1000.slice",
   }), false);
+  assert.equal(await detectContainerEnvironment({
+    env: {},
+    existsFn: async () => false,
+    readFileFn: async (filePath) => filePath === "/proc/1/cmdline"
+      ? "/kaic/webide/python-dir/python\0/kaic/webide/supervisord\0-n"
+      : "0::/",
+  }), true);
 });
 
 test("doctor accepts an explicitly installed root-container runtime with a warning", async () => {
