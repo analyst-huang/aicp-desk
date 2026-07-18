@@ -42,6 +42,13 @@ test("Linux Edge always receives a private writable XDG config directory", () =>
   assert.match(launchHeadless, /browserEnvironment/);
 });
 
+test("Linux remote Edge receives UTF-8 locale and the AICP private font configuration", () => {
+  assert.match(source, /--lang=zh-CN/);
+  assert.match(source, /LANG: locale/);
+  assert.match(source, /LC_CTYPE: locale/);
+  assert.match(source, /FONTCONFIG_FILE: fontConfig/);
+});
+
 test("browser requests use a shared reference-counted session lease", () => {
   assert.match(source, /async withBrowser\(callback\)/);
   assert.match(source, /this\.browserUsers \+= 1/);
@@ -65,4 +72,11 @@ test("remote UI startup retains per-process logs and includes stderr on failure"
   assert.match(remoteUiSource, /remote-ui-\$\{spec\.name\}\.log/);
   assert.match(remoteUiSource, /slice\(-20\)/);
   assert.match(remoteUiSource, /details \? `\\n\$\{details\}`/);
+});
+
+test("ordinary remote UI stop keeps Xvfb while the all mode can fully terminate it", () => {
+  assert.match(remoteUiSource, /export async function suspendRemoteUi/);
+  assert.match(remoteUiSource, /if \(record\.name === "xvfb"\) continue/);
+  assert.match(remoteUiSource, /accessStopped: true/);
+  assert.match(remoteUiSource, /resumed: resuming/);
 });

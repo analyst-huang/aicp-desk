@@ -35,7 +35,7 @@ if [ "$YES" -eq 0 ]; then
 fi
 
 if [ "$SYSTEM" = "Linux" ] && [ -e "$ROOT/app/bin/aicp.mjs" ]; then
-  node "$ROOT/app/bin/aicp.mjs" remote-ui stop --yes >/dev/null 2>&1 || true
+  node "$ROOT/app/bin/aicp.mjs" remote-ui stop --all --yes >/dev/null 2>&1 || true
 fi
 
 safe_remove() {

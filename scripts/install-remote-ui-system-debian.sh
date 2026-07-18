@@ -24,7 +24,7 @@ trap cleanup EXIT HUP INT TERM
 printf 'Updating package metadata for explicit system installation...\n'
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  xvfb x11vnc openbox websockify novnc x11-xkb-utils
+  xvfb x11vnc openbox websockify novnc x11-xkb-utils fonts-noto-cjk
 
 EDGE_COMMAND=$(command -v microsoft-edge 2>/dev/null || command -v microsoft-edge-stable 2>/dev/null || true)
 if [ -z "$EDGE_COMMAND" ] && [ ! -x /opt/microsoft/msedge/msedge ]; then

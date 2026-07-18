@@ -130,6 +130,13 @@ if [ "$INSTALL_STRATEGY" != "private" ]; then
   done
 fi
 
+HOST_CJK_FONT=0
+if command -v fc-list >/dev/null 2>&1 && fc-list ':lang=zh' file 2>/dev/null | grep -q .; then
+  HOST_CJK_FONT=1
+elif [ -d /usr/share/fonts ] && find /usr/share/fonts -type f \( -iname '*cjk*' -o -iname '*wqy*' -o -iname '*sourcehan*' \) 2>/dev/null | grep -q .; then
+  HOST_CJK_FONT=1
+fi
+
 PRIVATE_EDGE=0
 PRIVATE_XVFB=0
 PRIVATE_X11VNC=0
@@ -137,6 +144,7 @@ PRIVATE_WINDOW_MANAGER=0
 PRIVATE_WEBSOCKIFY=0
 PRIVATE_NOVNC=0
 PRIVATE_XKBCOMP=0
+PRIVATE_CJK_FONT=0
 [ -x "$STAGING/bin/microsoft-edge-stable" ] && [ -x "$STAGING/rootfs/opt/microsoft/msedge/msedge" ] && PRIVATE_EDGE=1
 if [ -x "$STAGING/bin/Xvfb" ]; then
   if [ "$INSTALL_STRATEGY" = "private" ] && [ -e "$STAGING/rootfs/usr/share/X11/xkb" ]; then PRIVATE_XVFB=1
@@ -148,6 +156,9 @@ fi
 [ -x "$STAGING/bin/websockify" ] && PRIVATE_WEBSOCKIFY=1
 [ -e "$STAGING/rootfs/usr/share/novnc/vnc.html" ] && PRIVATE_NOVNC=1
 [ -x "$STAGING/rootfs/usr/bin/xkbcomp" ] && PRIVATE_XKBCOMP=1
+if [ -d "$STAGING/rootfs/usr/share/fonts" ] && find "$STAGING/rootfs/usr/share/fonts" -type f \( -iname '*cjk*' -o -iname '*wqy*' -o -iname '*sourcehan*' \) 2>/dev/null | grep -q .; then
+  PRIVATE_CJK_FONT=1
+fi
 
 MISSING_SEED_PACKAGES=""
 [ -n "$XVFB_COMMAND" ] || [ "$PRIVATE_XVFB" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES xvfb"
@@ -161,6 +172,11 @@ fi
 if [ "$INSTALL_STRATEGY" = "private" ] && [ ! -e "$STAGING/rootfs/usr/share/X11/xkb" ]; then
   MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES xkb-data"
 fi
+if [ "$INSTALL_STRATEGY" = "private" ] && [ "$PRIVATE_CJK_FONT" -eq 0 ]; then
+  MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES fonts-noto-cjk"
+elif [ "$INSTALL_STRATEGY" = "auto" ] && [ "$HOST_CJK_FONT" -eq 0 ] && [ "$PRIVATE_CJK_FONT" -eq 0 ]; then
+  MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES fonts-noto-cjk"
+fi
 
 NEED_EDGE_DOWNLOAD=0
 [ -n "$EDGE_COMMAND" ] || [ "$PRIVATE_EDGE" -eq 1 ] || NEED_EDGE_DOWNLOAD=1
@@ -173,6 +189,7 @@ if [ "$INSTALL_STRATEGY" = "system" ]; then
   [ -n "$WINDOW_MANAGER_COMMAND" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS window-manager"
   [ -n "$WEBSOCKIFY_COMMAND" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS websockify"
   [ -n "$NOVNC_ROOT" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS noVNC"
+  [ "$HOST_CJK_FONT" -eq 1 ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS CJK-fonts"
   if [ -n "$MISSING_SYSTEM_COMPONENTS" ]; then
     printf 'System installer did not provide required components:%s\n' "$MISSING_SYSTEM_COMPONENTS" >&2
     exit 1
@@ -197,6 +214,11 @@ printf '  x11vnc:       '; component_plan "$X11VNC_COMMAND" "$PRIVATE_X11VNC"; p
 printf '  window mgr:   '; component_plan "$WINDOW_MANAGER_COMMAND" "$PRIVATE_WINDOW_MANAGER"; printf '\n'
 printf '  websockify:   '; component_plan "$WEBSOCKIFY_COMMAND" "$PRIVATE_WEBSOCKIFY"; printf '\n'
 printf '  noVNC web:    '; component_plan "$NOVNC_ROOT" "$PRIVATE_NOVNC"; printf '\n'
+if [ "$INSTALL_STRATEGY" != "private" ] && [ "$HOST_CJK_FONT" -eq 1 ]; then
+  printf '  CJK fonts:    environment\n'
+else
+  printf '  CJK fonts:    '; component_plan "" "$PRIVATE_CJK_FONT"; printf '\n'
+fi
 
 if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ] || [ -n "$MISSING_SEED_PACKAGES" ]; then
   for command_name in awk sort grep apt-cache apt-get dpkg-deb; do
@@ -380,6 +402,25 @@ fi
 [ -n "$WINDOW_MANAGER_COMMAND" ] || require_private_file usr/bin/openbox
 [ -n "$WEBSOCKIFY_COMMAND" ] || require_private_file usr/bin/websockify
 [ -n "$NOVNC_ROOT" ] || require_private_file usr/share/novnc/vnc.html
+if [ "$INSTALL_STRATEGY" = "private" ] || [ "$HOST_CJK_FONT" -eq 0 ]; then
+  if ! find "$STAGING/rootfs/usr/share/fonts" -type f \( -iname '*cjk*' -o -iname '*wqy*' -o -iname '*sourcehan*' \) 2>/dev/null | grep -q .; then
+    printf 'Private runtime is incomplete; missing a Chinese/CJK font.\n' >&2
+    exit 1
+  fi
+fi
+
+mkdir -p "$STAGING/font-cache"
+printf '%s\n' \
+  '<?xml version="1.0"?>' \
+  '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">' \
+  '<fontconfig>' \
+  '  <dir>/usr/share/fonts</dir>' \
+  "  <dir>$RUNTIME/rootfs/usr/share/fonts</dir>" \
+  '  <include ignore_missing="yes">/etc/fonts/conf.d</include>' \
+  "  <include ignore_missing=\"yes\">$RUNTIME/rootfs/etc/fonts/conf.d</include>" \
+  "  <cachedir>$RUNTIME/font-cache</cachedir>" \
+  '</fontconfig>' \
+  > "$STAGING/fonts.conf"
 
 write_native_wrapper() {
   wrapper_name=$1
@@ -497,6 +538,9 @@ X11VNC_SOURCE=${X11VNC_COMMAND:-private:runtime/bin/x11vnc}
 WINDOW_MANAGER_SOURCE=${WINDOW_MANAGER_COMMAND:-private:runtime/bin/openbox}
 WEBSOCKIFY_SOURCE=${WEBSOCKIFY_COMMAND:-private:runtime/bin/websockify}
 NOVNC_SOURCE=${NOVNC_ROOT:-private:runtime/rootfs/usr/share/novnc}
+if [ "$INSTALL_STRATEGY" != "private" ] && [ "$HOST_CJK_FONT" -eq 1 ]; then FONT_SOURCE=environment
+else FONT_SOURCE=private:runtime/rootfs/usr/share/fonts
+fi
 if [ -z "$XVFB_COMMAND" ] && [ -x "$STAGING/xkbbin/xkbcomp" ]; then XKBCOMP_SOURCE=private:runtime/xkbbin/xkbcomp
 elif [ -x /usr/bin/xkbcomp ]; then XKBCOMP_SOURCE=/usr/bin/xkbcomp
 else XKBCOMP_SOURCE=unavailable
@@ -515,6 +559,7 @@ printf '%s\n' \
   "window_manager_source=$WINDOW_MANAGER_SOURCE" \
   "websockify_source=$WEBSOCKIFY_SOURCE" \
   "novnc_source=$NOVNC_SOURCE" \
+  "font_source=$FONT_SOURCE" \
   "xkbcomp_source=$XKBCOMP_SOURCE" \
   > "$STAGING/manifest.txt"
 

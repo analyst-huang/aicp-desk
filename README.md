@@ -311,7 +311,13 @@ aicp dev list --mine
 aicp remote-ui stop --yes
 ```
 
-`stop` 会先正常关闭 Edge，再停止 noVNC、x11vnc、openbox 和 Xvfb；不会删除浏览器配置、Cookie 或已保存密码。之后 `aicp dev ...`、`aicp train ...`、`aicp gpu` 等命令会在服务器上按需启动不可见的 Edge，并复用相同登录态。
+`stop` 默认只关闭 noVNC、x11vnc 和窗口管理器，网页端口随即不可访问；后台 Edge 与 Xvfb 会继续运行。金山云的核心认证 Cookie 属于浏览器会话 Cookie，必须保留 Edge 进程才能继续使用，因此之后 `aicp dev ...`、`aicp train ...`、`aicp gpu` 等命令可以直接复用当前登录态。再次执行 `aicp login --remote-ui --yes` 会恢复 VNC 入口并显示原窗口，不需要重新登录。
+
+需要释放全部后台进程时使用下面的命令。它会关闭 Edge 和 Xvfb，当前金山云会话 Cookie 随之失效，下次需要重新完成手机验证码：
+
+```bash
+aicp remote-ui stop --all --yes
+```
 
 需要从本地浏览器使用远端 GUI 时，在另一个远端终端启动并保持该命令运行：
 
@@ -360,7 +366,7 @@ Agent 不应读取、复制、上传或提交 `AICP_HOME` 下的 `edge-profile/`
 
 ### 密码存储与安全边界
 
-带桌面的 Linux 通常由 Edge 使用 Gnome Keyring 或 KWallet 保护密码（参见 [Microsoft Edge 密码管理器安全说明](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-security-password-manager-security)）；纯命令行服务器通常没有可解锁的桌面密钥环。为确保无显示器模式在重启登录界面后仍能读取同一份 Cookie 和可选保存的密码，AICP Desk 会让该专用 Edge 配置一致使用 Chromium 的 `basic` 密码存储模式。
+带桌面的 Linux 通常由 Edge 使用 Gnome Keyring 或 KWallet 保护密码（参见 [Microsoft Edge 密码管理器安全说明](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-security-password-manager-security)）；纯命令行服务器通常没有可解锁的桌面密钥环。为确保无显示器模式能读取可选保存的账号密码，AICP Desk 会让该专用 Edge 配置一致使用 Chromium 的 `basic` 密码存储模式。金山云的当前认证 Cookie 是会话级数据，所以 `remote-ui stop` 会保留后台 Edge；`stop --all` 后仍能自动填充密码，但需要重新输入手机验证码。
 
 这比桌面密钥环保护弱：安全性主要依赖 Linux 用户权限、服务器磁盘和 `AICP_HOME` 目录权限。只在受信任的专用账号下使用，建议启用磁盘加密并执行：
 
@@ -383,11 +389,12 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | Edge 报 `crashpad`、`--database is required` 或 `$HOME/.config` 不可写 | AICP 会使用自己的 `edge-config/`，不再依赖用户的 `$HOME/.config`。重新安装或升级到 v0.13.2。 |
 | 提示私有 Xvfb 缺少 XKB 数据 | v0.13.3 起会复用主机的 `/usr/share/X11/xkb`，仅在主机也缺失时才要求私有 `xkb-data`。 |
 | `xvfb 启动失败` 且提示 `/usr/bin/xkbcomp: not found` | v0.13.6 起会把私有 Xvfb 的编译期路径重定向到 `runtime/xkbbin/xkbcomp`，无需写入系统 `/usr/bin`。远端 UI 各进程的末尾错误也会直接显示，并保存在 `AICP_HOME/remote-ui-*.log`。 |
+| VNC 页面中文显示方框或乱码 | v0.13.7 起安装器会检查中文字体；环境没有时把 `fonts-noto-cjk` 解包到 AICP 私有运行时，并为 Edge/openbox 使用 UTF-8 locale 和私有 fontconfig。重新运行 `aicp remote-ui install --yes` 后完全重启一次远端 UI。 |
 | `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
-| 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |
+| 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --all --yes`，确认 `doctor` 通过后重新启动。 |
 | VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
 | 服务器是 ARM64 | Edge Linux 当前没有对应服务器安装包；请改用 amd64 服务器。 |
-| Agent 提示登录过期 | 重新启动远端 UI，让用户完成新手机验证码；不要让 Agent 索要验证码。 |
+| `remote-ui stop` 后 Agent 提示登录过期 | 升级到 v0.13.7；默认 `stop` 会保留后台 Edge/Xvfb。只有 `stop --all`、容器重启或真实会话过期后才需要重新完成手机验证码。 |
 
 ## GUI 用法
 
@@ -662,7 +669,7 @@ AICP_HOME=/secure/path/aicp aicp session
 - `templates/`：开发机和训练任务模板。
 - `edge-profile/`：独立 Edge 登录资料和 Edge 保存的密码。
 - `edge-config/`：AICP 专用且可写的 Edge/Crashpad 配置；`logout --forget` 时删除。
-- `remote-ui.json`：正在运行的远端画面进程与端口；执行 `aicp remote-ui stop` 后删除。
+- `remote-ui.json`：远端画面进程与端口；普通 `remote-ui stop` 会保留其中的 Xvfb 会话宿主记录，`stop --all` 后删除。
 - `remote-ui-profile.json`：标记无显示器服务器使用的密码存储模式；`logout --forget` 时删除。
 - `remote-ui-*.log`：Xvfb、窗口管理器、x11vnc 和 websockify 的最近一次启动日志。
 

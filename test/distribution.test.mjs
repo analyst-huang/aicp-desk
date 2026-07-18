@@ -24,9 +24,9 @@ test("distribution includes installers and launchers for all supported platforms
   assert.match(unixInstall, /Linux/);
   assert.match(unixInstall, /\.local\/bin/);
   assert.match(unixInstall, /Stopped running AICP Desk GUI/);
-  assert.match(unixInstall, /remote-ui stop --yes/);
+  assert.match(unixInstall, /remote-ui stop --all --yes/);
   assert.match(unixUninstall, /--keep-data/);
-  assert.match(unixUninstall, /remote-ui stop --yes/);
+  assert.match(unixUninstall, /remote-ui stop --all --yes/);
   assert.match(unixLauncher, /^#!\/usr\/bin\/env sh/);
 });
 
@@ -74,6 +74,8 @@ test("distribution includes agent-ready private and explicit system remote UI in
   assert.match(dependencyInstaller, /patch_private_xvfb_xkbcomp/);
   assert.match(dependencyInstaller, /\.\/xkbbin/);
   assert.match(dependencyInstaller, /x11-xkb-utils/);
+  assert.match(dependencyInstaller, /fonts-noto-cjk/);
+  assert.match(dependencyInstaller, /fonts\.conf/);
   assert.match(dependencyInstaller, /AICP_RUNTIME_INSTALL_MODE/);
   assert.match(dependencyInstaller, /auto\|private\|system/);
   assert.match(dependencyInstaller, /CONTAINER_DETECTED/);
@@ -85,12 +87,14 @@ test("distribution includes agent-ready private and explicit system remote UI in
   assert.match(dependencyInstaller, /No files were written to \/usr, \/opt, or \/etc/);
   assert.match(systemInstaller, /apt-get install -y --no-install-recommends/);
   assert.match(systemInstaller, /microsoft-edge-stable\.deb/);
+  assert.match(systemInstaller, /fonts-noto-cjk/);
   assert.match(systemInstaller, /AICP_RUNTIME_INSTALL_MODE=system/);
   assert.match(systemInstaller, /must be run as root/);
   assert.match(cli, /aicp remote-ui doctor/);
   assert.match(cli, /aicp remote-ui install/);
   assert.match(cli, /installRemoteUiRuntime/);
   assert.match(cli, /--runtime-mode auto\|private\|system/);
+  assert.match(cli, /remote-ui stop --all/);
   assert.match(cli, /VS Code 转发端口/);
 });
 

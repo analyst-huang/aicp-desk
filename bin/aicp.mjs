@@ -24,7 +24,8 @@ AICP 本地控制工具
                                         自动复用、全私有或系统级安装远端 UI 组件
   aicp remote-ui doctor                检查远端登录所需的 Edge/Xvfb/noVNC
   aicp remote-ui status [--json]        查看远端界面状态及待转发端口
-  aicp remote-ui stop [--yes]           关闭远端 Edge 和远端界面
+  aicp remote-ui stop [--yes]           关闭 VNC 入口，保留后台登录会话
+  aicp remote-ui stop --all [--yes]     连同 Edge/Xvfb 完全关闭（会话 Cookie 会失效）
   aicp logout [--yes]                  清除会话，保留 Edge 已保存的账号密码
   aicp logout --forget [--yes]         删除全部登录资料（包括已保存密码）
   aicp session                         查看会话状态
@@ -445,8 +446,14 @@ async function main() {
     );
     if (!approved) return print("已取消");
     if (remoteUi) {
-      const { startRemoteUi, stopRemoteUi } = await import("../lib/remote-ui.mjs");
-      await context.browser.closeActiveBrowser();
+      const { normalizeRemoteUiOptions, remoteUiStatus, startRemoteUi, stopRemoteUi } = await import("../lib/remote-ui.mjs");
+      const existing = await remoteUiStatus();
+      const desired = normalizeRemoteUiOptions(options);
+      const canReuseSessionHost = (existing.running || existing.accessStopped)
+        && existing.display === desired.display
+        && existing.vncPort === desired.vncPort
+        && existing.webPort === desired.webPort;
+      if (!canReuseSessionHost) await context.browser.closeActiveBrowser();
       const status = await startRemoteUi(context.config, options);
       let browser;
       try {
@@ -457,7 +464,7 @@ async function main() {
       }
       print({ remoteUi: status, browser }, true);
       printRemoteUiAccess(status);
-      return print("请在 VS Code 的“端口”面板转发上面的网页端口，然后打开登录地址完成 MFA。完成后运行：aicp remote-ui stop --yes");
+      return print("请在 VS Code 的“端口”面板转发上面的网页端口，然后打开登录地址完成 MFA。完成后可运行 aicp remote-ui stop --yes 关闭 VNC 入口并保留后台登录会话。");
     }
     const result = await context.browser.launchLogin();
     print(result, true);
@@ -466,7 +473,7 @@ async function main() {
   if (group === "remote-ui") {
     const remoteAction = action || "status";
     const { options } = parseArgs(rest);
-    const { installRemoteUiRuntime, remoteUiDoctor, remoteUiStatus, stopRemoteUi } = await import("../lib/remote-ui.mjs");
+    const { installRemoteUiRuntime, remoteUiDoctor, remoteUiStatus, stopRemoteUi, suspendRemoteUi } = await import("../lib/remote-ui.mjs");
     if (remoteAction === "install") {
       const allowNoSandbox = Boolean(options["allow-no-sandbox"]);
       const allowRoot = Boolean(options["allow-root"]);
@@ -500,16 +507,20 @@ async function main() {
       const status = await remoteUiStatus();
       if (options.json) return print(status, true);
       if (!status.configured) return print("远端 UI 未启动。运行：aicp login --remote-ui --yes");
-      print(`远端 UI: ${status.running ? "运行中" : "进程不完整，请先停止后重试"}`);
+      print(`远端 UI: ${status.running ? "运行中" : status.accessStopped ? "VNC 入口已关闭，后台登录会话保留中" : "进程不完整，请先完全停止后重试"}`);
       print(`虚拟显示器: ${status.display}`);
-      printRemoteUiAccess(status);
+      if (status.running) printRemoteUiAccess(status);
       return;
     }
     if (remoteAction === "stop") {
-      const approved = await confirmAction("确认关闭远端 Edge 和远端登录界面？登录资料会保留。", { yes: Boolean(options.yes) });
+      const stopAll = Boolean(options.all);
+      const approved = await confirmAction(stopAll
+        ? "确认完全关闭远端 Edge、Xvfb 和 VNC？金山云使用会话 Cookie，关闭 Edge 后当前登录态会失效。"
+        : "确认关闭 VNC 网页入口？后台 Edge/Xvfb 会继续运行以保留当前登录态。", { yes: Boolean(options.yes) });
       if (!approved) return print("已取消");
+      if (!stopAll) return print(await suspendRemoteUi(), true);
       const browserClosed = await context.browser.closeActiveBrowser();
-      return print({ browserClosed, ...(await stopRemoteUi()) }, true);
+      return print({ browserClosed, ...(await stopRemoteUi()), sessionKept: false }, true);
     }
     throw new Error(`未知远端 UI 命令：${remoteAction}`);
   }

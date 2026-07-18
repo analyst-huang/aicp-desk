@@ -36,7 +36,7 @@ case "$APP" in
 esac
 
 if [ "$SYSTEM" = "Linux" ] && [ -e "$APP/bin/aicp.mjs" ]; then
-  node "$APP/bin/aicp.mjs" remote-ui stop --yes >/dev/null 2>&1 || true
+  node "$APP/bin/aicp.mjs" remote-ui stop --all --yes >/dev/null 2>&1 || true
 fi
 
 if [ -e "$APP/bin/aicp.mjs" ]; then
