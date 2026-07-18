@@ -60,6 +60,7 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   assert.match(dependencyInstaller, /--progress-bar/);
   assert.match(dependencyInstaller, /--retry 3/);
   assert.match(dependencyInstaller, /Edge smoke-test output/);
+  assert.match(dependencyInstaller, /timeout --signal=TERM --kill-after=5s 30s/);
   assert.match(dependencyInstaller, /sort -k1,1V/);
   assert.match(dependencyInstaller, /EDGE_CACHE_FILE/);
   assert.match(dependencyInstaller, /XDG_CONFIG_HOME/);

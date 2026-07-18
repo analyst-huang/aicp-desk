@@ -143,7 +143,7 @@ if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ] || [ -n "$MISSING_SEED_PACKAGES" ]; then
   esac
 fi
 if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ]; then
-  for command_name in curl gzip tail; do
+  for command_name in curl gzip tail timeout; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
       printf 'Missing host prerequisite needed for private Edge: %s\n' "$command_name" >&2
       exit 1
@@ -403,7 +403,8 @@ if [ "$ROOT_MODEL" -eq 1 ] || [ "${AICP_ALLOW_NO_SANDBOX:-0}" = "1" ]; then EDGE
 EDGE_SMOKE_LOG="$DOWNLOADS/edge-smoke.log"
 EDGE_SMOKE_CONFIG="$STAGING/xdg-config"
 mkdir -p "$EDGE_SMOKE_CONFIG"
-if ! XDG_CONFIG_HOME="$EDGE_SMOKE_CONFIG" "$EDGE_SMOKE_COMMAND" $EDGE_SMOKE_SANDBOX --headless=new --disable-gpu --no-first-run \
+if ! XDG_CONFIG_HOME="$EDGE_SMOKE_CONFIG" timeout --signal=TERM --kill-after=5s 30s \
+  "$EDGE_SMOKE_COMMAND" $EDGE_SMOKE_SANDBOX --headless=new --disable-gpu --no-first-run \
   --user-data-dir="$DOWNLOADS/edge-smoke-profile" --dump-dom about:blank >"$EDGE_SMOKE_LOG" 2>&1; then
   printf 'The selected Edge could not start. Check its libraries and the current sandbox mode.\n' >&2
   printf '%s\n' '--- Edge smoke-test output ---' >&2

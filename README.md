@@ -360,8 +360,8 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | 容器 root 被当成裸机 root | 容器检测可能被运行时隐藏；确认隔离边界后执行 `aicp remote-ui install --allow-root --yes`。 |
 | 提示找不到 noVNC 网页 | 重新运行混合安装脚本；它会先查 `/usr/share/novnc` 等环境目录，再补到 `runtime/rootfs/usr/share/novnc`。自定义安装可用 `--web-root` 指定。 |
 | 安装仍然准备下载很多包 | 查看安装开头的 component plan，并运行 `aicp remote-ui doctor` 查看实际路径；环境组件必须能通过 `PATH` 或文档中的常见目录找到。已有私有副本会显示为 `private (cached)`。 |
-| Edge 下载长时间没有反馈 | v0.13.1 起 Edge 主包会显示进度并自动重试；请确认能访问 `packages.microsoft.com`。如果启动验证失败，安装器会打印最后 30 行 Edge 输出。 |
-| Edge 报 `crashpad`、`--database is required` 或 `$HOME/.config` 不可写 | AICP 会使用自己的 `edge-config/`，不再依赖用户的 `$HOME/.config`。重新安装或升级到 v0.13.1。 |
+| Edge 下载长时间没有反馈 | v0.13.2 起 Edge 主包会显示进度并自动重试；请确认能访问 `packages.microsoft.com`。启动验证最多等待 30 秒，失败或超时会打印最后 30 行 Edge 输出。 |
+| Edge 报 `crashpad`、`--database is required` 或 `$HOME/.config` 不可写 | AICP 会使用自己的 `edge-config/`，不再依赖用户的 `$HOME/.config`。重新安装或升级到 v0.13.2。 |
 | `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
 | 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |
 | VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
