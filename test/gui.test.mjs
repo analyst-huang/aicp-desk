@@ -137,16 +137,23 @@ test("GUI exposes native resource-pool and queue GPU capacity", () => {
   assert.match(html, /id="page-gpu"/);
   assert.match(html, /id="gpu-metrics"/);
   assert.match(html, /id="gpu-pools"/);
+  assert.match(html, /id="gpu-only-free"/);
+  assert.match(html, /id="gpu-node-sort"/);
+  assert.match(html, /id="gpu-node-filter-summary"/);
   assert.match(script, /async function loadGpu/);
   assert.match(script, /queue\.remainingGpu/);
   assert.match(script, /node\.remainingMemoryGiB/);
   assert.match(script, /node\.allocatableGpu/);
+  assert.match(script, /node\.schedulable && Number\(node\.remainingGpu\) > 0/);
+  assert.match(script, /function orderedGpuNodes/);
+  assert.match(script, /function rerenderGpuCapacity/);
   assert.match(script, /节点实时容量/);
   assert.match(script, /state\.page === "gpu"/);
   assert.match(server, /\/api\/gpu/);
   assert.match(styles, /\.capacity-pool/);
   assert.match(styles, /\.capacity-node-grid/);
   assert.match(styles, /\.capacity-node-card/);
+  assert.match(styles, /\.gpu-node-toolbar/);
 });
 
 test("developer fixed-node selector refreshes against current resource filters", () => {

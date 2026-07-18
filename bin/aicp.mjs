@@ -22,7 +22,8 @@ AICP 本地控制工具
   aicp gui [--no-open] [--port 17863]  启动可视化控制台
 
 GPU 容量
-  aicp gpu [--json] [--region REGION]  查看资源组、队列与逐节点剩余资源
+  aicp gpu [--only-free] [--sort-gpu desc|asc] [--json] [--region REGION]
+                                        查看并筛选逐节点剩余资源
 
 开发机
   aicp dev list [--mine] [--json]
@@ -82,8 +83,12 @@ async function handleConfig(positionals) {
 
 async function handleGpu(context, args) {
   const { positionals, options } = parseArgs(args);
-  if (positionals.length) throw new Error("用法：aicp gpu [--json] [--region REGION]");
-  const capacity = await context.service.gpuCapacity({ region: options.region });
+  if (positionals.length) throw new Error("用法：aicp gpu [--only-free] [--sort-gpu desc|asc] [--json] [--region REGION]");
+  const capacity = await context.service.gpuCapacity({
+    region: options.region,
+    onlyFree: Boolean(options["only-free"]),
+    sortGpu: options["sort-gpu"] || "desc",
+  });
   if (options.json) return print(capacity, true);
   const poolRows = capacity.pools.map((pool) => ({
     name: pool.name,
@@ -137,7 +142,7 @@ async function handleGpu(context, args) {
       { key: "borrowing", label: "允许借用" },
     ]),
     "",
-    "节点（剩余 = 可分配 - 已分配；内存单位为 GiB）",
+    `节点（显示 ${capacity.summary.visibleNodeCount} / ${capacity.summary.nodeCount} 台；剩余 = 可分配 - 已分配；内存单位为 GiB）`,
     formatTable(nodeRows, [
       { key: "pool", label: "资源组" },
       { key: "node", label: "机器" },

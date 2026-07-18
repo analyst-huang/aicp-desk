@@ -271,6 +271,31 @@ function workloadLabel(types = []) {
   return types.map((type) => ({ notebook: "开发机", trainjob: "训练任务", queuejob: "队列任务" })[type] || type).join(" / ");
 }
 
+function orderedGpuNodes(nodes = []) {
+  const onlyFree = Boolean($("#gpu-only-free")?.checked);
+  const direction = $("#gpu-node-sort")?.value || "desc";
+  return [...nodes]
+    .filter((node) => !onlyFree || (node.schedulable && Number(node.remainingGpu) > 0))
+    .sort((left, right) => (
+      (direction === "asc" ? 1 : -1) * (Number(left.remainingGpu) - Number(right.remainingGpu))
+      || Number(right.remainingMemoryGiB) - Number(left.remainingMemoryGiB)
+      || String(left.name || left.ip).localeCompare(String(right.name || right.ip), "zh-CN")
+    ));
+}
+
+function renderGpuFilterSummary(pools = []) {
+  const total = pools.reduce((sum, pool) => sum + pool.nodes.length, 0);
+  const visible = pools.reduce((sum, pool) => sum + orderedGpuNodes(pool.nodes).length, 0);
+  const direction = $("#gpu-node-sort")?.value === "asc" ? "从少到多" : "从多到少";
+  $("#gpu-node-filter-summary").textContent = `显示 ${visible} / ${total} 台 · 剩余卡数${direction}`;
+}
+
+function rerenderGpuCapacity() {
+  if (!state.gpuCapacity) return;
+  $("#gpu-pools").innerHTML = renderGpuPools(state.gpuCapacity.pools);
+  renderGpuFilterSummary(state.gpuCapacity.pools);
+}
+
 function renderGpuPools(pools) {
   if (!pools.length) return '<div class="panel capacity-empty">当前区域没有可用资源组</div>';
   return pools.map((pool) => {
@@ -292,7 +317,8 @@ function renderGpuPools(pools) {
         <td>${statusPill(queue.state || "unknown")}</td>
       </tr>`;
     }).join("");
-    const nodeCards = pool.nodes.map((node) => {
+    const visibleNodes = orderedGpuNodes(pool.nodes);
+    const nodeCards = visibleNodes.map((node) => {
       const nodeStatus = node.schedulable
         ? `<span class="status running">${escapeHtml(node.statusName || node.status || "正常")}</span>`
         : '<span class="status failed">不可调度</span>';
@@ -314,8 +340,8 @@ function renderGpuPools(pools) {
         <div><p class="eyebrow">Resource pool · ${escapeHtml(pool.type || "-")}</p><h3>${escapeHtml(pool.name || pool.id)}</h3><small>${escapeHtml(pool.id)}</small></div>
         <div class="capacity-pool-total"><span>物理 GPU 剩余</span><strong>${escapeHtml(pool.freeGpu)}<small> / ${escapeHtml(pool.totalGpu)} 卡</small></strong><progress max="${escapeHtml(max)}" value="${escapeHtml(pool.freeGpu)}"></progress><p>已分配 ${escapeHtml(pool.assignedGpu)} · 不可用 ${escapeHtml(pool.unavailableGpu)}</p></div>
       </header>
-      <div class="capacity-section-head"><div><h4>节点实时容量</h4><p>按 GPU 剩余、内存剩余排序；适合 Agent 在启动实验前选机。</p></div><span>${escapeHtml(pool.nodes.length)} 台</span></div>
-      <div class="capacity-node-table capacity-node-grid">${nodeCards || '<div class="empty">该资源组没有节点</div>'}</div>
+      <div class="capacity-section-head"><div><h4>节点实时容量</h4><p>优先按剩余 GPU 卡数排序；适合 Agent 在启动实验前选机。</p></div><span>${escapeHtml(visibleNodes.length)} / ${escapeHtml(pool.nodes.length)} 台</span></div>
+      <div class="capacity-node-table capacity-node-grid">${nodeCards || '<div class="empty">没有符合筛选条件的节点</div>'}</div>
       <div class="capacity-section-head queue"><div><h4>队列配额</h4><p>配额口径与物理节点容量分开显示。</p></div><span>${escapeHtml(pool.queues.length)} 个</span></div>
       <div class="table-wrap"><table><thead><tr><th>队列</th><th>型号与配额</th><th>总配额</th><th>已分配</th><th>配额剩余</th><th>借用</th><th>状态</th></tr></thead><tbody>${queueRows || '<tr><td colspan="7" class="empty">该资源组没有队列</td></tr>'}</tbody></table></div>
       <p class="capacity-note">节点剩余 = 可分配 - 已分配，内存单位为 GiB。队列“配额剩余”不等于当前一定可调度的物理卡数；允许借用时，最终可申请量仍受资源组物理剩余、GPU 型号和单节点碎片影响。</p>
@@ -343,6 +369,7 @@ async function loadGpu({ background = false } = {}) {
     const summary = state.gpuCapacity.summary;
     $("#gpu-metrics").innerHTML = metric("资源组", summary.poolCount, "个") + metric("物理 GPU 剩余", summary.freeGpu, "卡") + metric("物理 GPU 总量", summary.totalGpu, "卡") + metric("节点", summary.nodeCount, `台 · ${summary.gpuNodeCount} 台 GPU`);
     container.innerHTML = renderGpuPools(state.gpuCapacity.pools);
+    renderGpuFilterSummary(state.gpuCapacity.pools);
     markResourceRefresh();
   } catch (error) {
     if (!background) container.innerHTML = `<div class="panel capacity-empty error">${escapeHtml(error.message)}</div>`;
@@ -1678,6 +1705,8 @@ $("#forget-login-button").addEventListener("click", async () => {
 $("#dev-mine").addEventListener("change", loadDev);
 $("#train-mine").addEventListener("change", loadTrain);
 $("#train-status").addEventListener("change", loadTrain);
+$("#gpu-only-free").addEventListener("change", rerenderGpuCapacity);
+$("#gpu-node-sort").addEventListener("change", rerenderGpuCapacity);
 $("#create-template").addEventListener("change", loadSelectedTemplate);
 $("#save-create-template").addEventListener("click", saveCurrentCreateTemplate);
 $("#refresh-dev-options").addEventListener("click", async () => {

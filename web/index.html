@@ -94,6 +94,15 @@
           <div class="capacity-legend"><span><i class="node"></i>逐节点可调度余量</span><span><i class="free"></i>资源组物理空闲</span><span><i class="quota"></i>队列配额剩余</span></div>
         </div>
         <div class="metric-row" id="gpu-metrics"></div>
+        <div class="panel gpu-node-toolbar">
+          <div><strong>节点筛选与排序</strong><small id="gpu-node-filter-summary">登录后可筛选节点</small></div>
+          <div class="gpu-node-controls">
+            <label class="switch-label"><input type="checkbox" id="gpu-only-free"><span></span>只看有空闲卡</label>
+            <label class="gpu-sort-label">按剩余卡数
+              <select id="gpu-node-sort"><option value="desc">多 → 少</option><option value="asc">少 → 多</option></select>
+            </label>
+          </div>
+        </div>
         <div class="capacity-pools" id="gpu-pools"><div class="panel capacity-empty">登录后加载 GPU 容量</div></div>
       </section>
 

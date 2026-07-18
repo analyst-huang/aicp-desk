@@ -76,11 +76,36 @@ test("GPU capacity keeps pool free cards separate from queue quota remaining", a
   assert.equal(capacity.pools[0].queues[0].allowBorrowing, true);
   assert.equal(capacity.summary.nodeCount, 2);
   assert.equal(capacity.summary.gpuNodeCount, 1);
+  assert.equal(capacity.summary.visibleNodeCount, 2);
+  assert.deepEqual(capacity.filters, { onlyFree: false, sortGpu: "desc" });
   assert.equal(capacity.pools[0].nodes[0].gpuModel, "A100");
   assert.equal(capacity.pools[0].nodes[0].remainingGpu, 5);
   assert.equal(capacity.pools[0].nodes[0].remainingMemoryGiB, 384);
   assert.equal(capacity.pools[0].nodes[0].remainingCpu, 56);
   assert.equal(capacity.pools[0].nodes[1].schedulable, false);
+});
+
+test("GPU capacity can keep only schedulable free-GPU nodes and sort ascending", async () => {
+  const service = makeService({
+    gpuCapacity: async () => ({
+      region: "region-1",
+      groups: [{
+        pool: { ResourcePoolId: "pool", ResourcePoolName: "Pool" }, gpu: {}, queues: [],
+        nodes: [
+          { InstanceId: "five", InstanceName: "Five", IsGpu: true, UnSchedulable: false, Gpu: { Allocatable: 8, Allocated: 3 }, Memory: { Allocatable: 100, Allocated: 20 } },
+          { InstanceId: "two", InstanceName: "Two", IsGpu: true, UnSchedulable: false, Gpu: { Allocatable: 8, Allocated: 6 }, Memory: { Allocatable: 100, Allocated: 20 } },
+          { InstanceId: "zero", InstanceName: "Zero", IsGpu: true, UnSchedulable: false, Gpu: { Allocatable: 8, Allocated: 8 }, Memory: { Allocatable: 100, Allocated: 20 } },
+          { InstanceId: "blocked", InstanceName: "Blocked", IsGpu: true, UnSchedulable: true, Gpu: { Allocatable: 8, Allocated: 4 }, Memory: { Allocatable: 100, Allocated: 20 } },
+        ],
+      }],
+    }),
+  });
+  const capacity = await service.gpuCapacity({ onlyFree: true, sortGpu: "asc" });
+  assert.deepEqual(capacity.pools[0].nodes.map((node) => node.id), ["two", "five"]);
+  assert.equal(capacity.summary.nodeCount, 4);
+  assert.equal(capacity.summary.visibleNodeCount, 2);
+  assert.deepEqual(capacity.filters, { onlyFree: true, sortGpu: "asc" });
+  await assert.rejects(() => service.gpuCapacity({ sortGpu: "random" }), /asc 或 desc/);
 });
 
 test("prepare train variables applies nested overrides", async () => {

@@ -37,9 +37,11 @@ test("README documents Windows, macOS, Linux, GUI, and CLI workflows", async () 
 
 test("CLI exposes GPU capacity in human and JSON modes", async () => {
   const cli = await read("bin/aicp.mjs");
-  assert.match(cli, /aicp gpu \[--json\]/);
+  assert.match(cli, /aicp gpu \[--only-free\].*\[--json\]/);
   assert.match(cli, /context\.service\.gpuCapacity/);
   assert.match(cli, /资源组物理 GPU/);
   assert.match(cli, /GPU剩余\/可分配/);
   assert.match(cli, /内存剩余\/可分配/);
+  assert.match(cli, /--only-free/);
+  assert.match(cli, /--sort-gpu desc\|asc/);
 });

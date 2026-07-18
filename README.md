@@ -14,7 +14,7 @@ AICP Desk 是一个运行在本机的金山云星流（AICP）控制工具，同
 
 - 开发机：查询、创建、启动、停止、删除、保存镜像、复制公网 SSH 命令、存为模板。
 - 训练任务：查询、创建、查看运行命令、启动、停止、删除、存为模板。
-- GPU 与节点容量：只读查看每个资源组的物理 GPU 总量/剩余量、队列配额，以及每台机器的 GPU 型号、可分配/已分配/剩余卡数、内存和 CPU 余量。
+- GPU 与节点容量：只读查看每个资源组的物理 GPU 总量/剩余量、队列配额，以及每台机器的 GPU 型号、可分配/已分配/剩余卡数、内存和 CPU 余量；可只看有空闲卡且可调度的节点，并按剩余卡数排序。
 - 状态自动刷新：开发机、训练任务和 GPU 容量页面每 10 秒后台刷新当前可见页面，切回页面时立即补刷；手动刷新仍然保留。
 - 原生创建选项：实时读取当前区域的镜像、资源组、开发/训练队列、GPU、存储、EIP 和 KCR 配置。
 - 可编辑模板：选择模板后会回填完整创建页面，可继续做少量或大幅修改；只有明确点击保存时才会更新模板。
@@ -227,6 +227,8 @@ aicp gui --port 18080
 
 节点余量最适合 Agent 在启动实验前判断单机是否放得下所需资源；资源组与队列数据则用于判断整体容量和权限。队列配额剩余不等于当前一定可调度的物理卡数。如果队列允许借用，最终可申请量还会受资源组实时物理剩余、GPU 型号和单节点碎片影响。
 
+节点区域上方提供“只看有空闲卡”开关和剩余卡数升序/降序选择。“有空闲卡”同时要求节点可调度且 `remainingGpu > 0`，避免向 Agent 推荐已禁止调度的机器。筛选和排序状态会在每次 10 秒自动刷新后继续生效。
+
 开发机、训练任务和 GPU 容量页面默认每 10 秒在后台刷新当前可见页面，不会因定时刷新清空整张表格；页面顶部会显示最近刷新时间。切回浏览器标签时会立即补刷一次，也可以随时点击“刷新”。
 
 ### 模板页面
@@ -265,9 +267,11 @@ aicp gpu
 ```bash
 aicp gpu --json
 aicp gpu --region cn-northwest-3 --json
+aicp gpu --only-free
+aicp gpu --only-free --sort-gpu desc --json
 ```
 
-人类可读输出会分别列出资源组物理剩余、队列配额剩余和每台机器的实时余量，并标记机器是否可调度、队列是否允许借用。Agent 建议使用 `aicp gpu --json`；逐节点数据位于 `pools[].nodes[]`，关键字段包括 `gpuModel`、`remainingGpu`、`allocatableGpu`、`remainingMemoryGiB`、`allocatableMemoryGiB`、`remainingCpu` 和 `schedulable`。
+人类可读输出会分别列出资源组物理剩余、队列配额剩余和每台机器的实时余量，并标记机器是否可调度、队列是否允许借用。`--only-free` 只保留可调度且有剩余 GPU 的节点；`--sort-gpu desc|asc` 控制剩余卡数排序，默认 `desc`。Agent 建议使用 `aicp gpu --only-free --sort-gpu desc --json`；逐节点数据位于 `pools[].nodes[]`，关键字段包括 `gpuModel`、`remainingGpu`、`allocatableGpu`、`remainingMemoryGiB`、`allocatableMemoryGiB`、`remainingCpu` 和 `schedulable`。
 
 ### 开发机
 
