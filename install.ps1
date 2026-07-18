@@ -39,7 +39,7 @@ if (Test-Path -LiteralPath $installedEntry) {
 
 Get-ChildItem -LiteralPath $app -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 $distributionItems = @(
-  'bin', 'lib', 'web', 'docs', 'examples', 'package.json', 'README.md',
+  'bin', 'lib', 'web', 'docs', 'examples', 'scripts', 'package.json', 'README.md',
   'install.ps1', 'uninstall.ps1', 'install.sh', 'uninstall.sh',
   'aicp', 'aicp.cmd', 'start-gui.sh', 'start-gui.cmd'
 )

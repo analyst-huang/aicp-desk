@@ -16,6 +16,12 @@ AICP 本地控制工具
 
 登录与界面
   aicp login [--yes]                   打开独立 Edge，手动完成 MFA
+  aicp login --remote-ui [--web-port 6080] [--vnc-port 5900]
+             [--display :99] [--web-root PATH] [--yes]
+                                        在 Linux 无显示器服务器启动可转发登录界面
+  aicp remote-ui doctor                检查远端登录所需的 Edge/Xvfb/noVNC
+  aicp remote-ui status [--json]        查看远端界面状态及待转发端口
+  aicp remote-ui stop [--yes]           关闭远端 Edge 和远端界面
   aicp logout [--yes]                  清除会话，保留 Edge 已保存的账号密码
   aicp logout --forget [--yes]         删除全部登录资料（包括已保存密码）
   aicp session                         查看会话状态
@@ -71,6 +77,12 @@ function csv(value) {
 
 function print(value, json = false) {
   process.stdout.write(json ? jsonOutput(value) : `${value}\n`);
+}
+
+function printRemoteUiAccess(status) {
+  print(`远端网页端口: ${status.webPort}`);
+  print(`VS Code 转发端口: ${status.webPort}`);
+  print(`登录地址: ${status.url}`);
 }
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -421,11 +433,59 @@ async function main() {
   const context = await createContext();
   if (group === "login") {
     const { options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
-    const approved = await confirmAction("将开启仅监听本机的独立 Edge 调试会话；继续？", { yes: Boolean(options.yes) });
+    const remoteUi = Boolean(options["remote-ui"]);
+    const approved = await confirmAction(
+      remoteUi
+        ? "将在此 Linux 服务器启动仅监听 127.0.0.1 的 Edge/noVNC 登录界面；继续？"
+        : "将开启仅监听本机的独立 Edge 调试会话；继续？",
+      { yes: Boolean(options.yes) },
+    );
     if (!approved) return print("已取消");
+    if (remoteUi) {
+      const { startRemoteUi, stopRemoteUi } = await import("../lib/remote-ui.mjs");
+      await context.browser.closeActiveBrowser();
+      const status = await startRemoteUi(context.config, options);
+      let browser;
+      try {
+        browser = await context.browser.launchLogin({ display: status.display, passwordStore: "basic" });
+      } catch (error) {
+        if (!status.alreadyRunning) await stopRemoteUi();
+        throw error;
+      }
+      print({ remoteUi: status, browser }, true);
+      printRemoteUiAccess(status);
+      return print("请在 VS Code 的“端口”面板转发上面的网页端口，然后打开登录地址完成 MFA。完成后运行：aicp remote-ui stop --yes");
+    }
     const result = await context.browser.launchLogin();
     print(result, true);
     return print("请在独立 Edge 中完成 MFA；首次登录可选择让 Edge 保存密码，之后通常只需输入新的手机验证码。", false);
+  }
+  if (group === "remote-ui") {
+    const remoteAction = action || "status";
+    const { options } = parseArgs(rest);
+    const { remoteUiDoctor, remoteUiStatus, stopRemoteUi } = await import("../lib/remote-ui.mjs");
+    if (remoteAction === "doctor") {
+      const report = await remoteUiDoctor(context.config, options);
+      print(report, true);
+      if (!report.ready) process.exitCode = 1;
+      return;
+    }
+    if (remoteAction === "status") {
+      const status = await remoteUiStatus();
+      if (options.json) return print(status, true);
+      if (!status.configured) return print("远端 UI 未启动。运行：aicp login --remote-ui --yes");
+      print(`远端 UI: ${status.running ? "运行中" : "进程不完整，请先停止后重试"}`);
+      print(`虚拟显示器: ${status.display}`);
+      printRemoteUiAccess(status);
+      return;
+    }
+    if (remoteAction === "stop") {
+      const approved = await confirmAction("确认关闭远端 Edge 和远端登录界面？登录资料会保留。", { yes: Boolean(options.yes) });
+      if (!approved) return print("已取消");
+      const browserClosed = await context.browser.closeActiveBrowser();
+      return print({ browserClosed, ...(await stopRemoteUi()) }, true);
+    }
+    throw new Error(`未知远端 UI 命令：${remoteAction}`);
   }
   if (group === "logout") {
     const { options } = parseArgs([action, ...rest].filter((item) => item !== undefined));

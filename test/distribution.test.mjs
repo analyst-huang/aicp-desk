@@ -24,15 +24,32 @@ test("distribution includes installers and launchers for all supported platforms
   assert.match(unixInstall, /Linux/);
   assert.match(unixInstall, /\.local\/bin/);
   assert.match(unixInstall, /Stopped running AICP Desk GUI/);
+  assert.match(unixInstall, /remote-ui stop --yes/);
   assert.match(unixUninstall, /--keep-data/);
+  assert.match(unixUninstall, /remote-ui stop --yes/);
   assert.match(unixLauncher, /^#!\/usr\/bin\/env sh/);
 });
 
 test("README documents Windows, macOS, Linux, GUI, and CLI workflows", async () => {
   const readme = await read("README.md");
-  for (const phrase of ["### Windows", "### macOS", "### Linux", "## GUI 用法", "## CLI 用法", "aicp login", "aicp gui", "--dry-run"]) {
+  for (const phrase of ["### Windows", "### macOS", "### Linux", "## GUI 用法", "## CLI 用法", "aicp login", "aicp gui", "--dry-run", "aicp login --remote-ui", "VS Code 转发端口"]) {
     assert.match(readme, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+});
+
+test("distribution includes an agent-ready Debian remote UI dependency installer", async () => {
+  const [windowsInstall, unixInstall, dependencyInstaller, cli] = await Promise.all([
+    read("install.ps1"),
+    read("install.sh"),
+    read("scripts/install-remote-ui-debian.sh"),
+    read("bin/aicp.mjs"),
+  ]);
+  assert.match(windowsInstall, /'scripts'/);
+  assert.match(unixInstall, /bin lib web docs examples scripts/);
+  assert.match(dependencyInstaller, /microsoft-edge-stable/);
+  assert.match(dependencyInstaller, /xvfb x11vnc novnc websockify openbox/);
+  assert.match(cli, /aicp remote-ui doctor/);
+  assert.match(cli, /VS Code 转发端口/);
 });
 
 test("CLI exposes GPU capacity in human and JSON modes", async () => {

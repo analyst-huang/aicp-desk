@@ -19,6 +19,7 @@ AICP Desk 是一个运行在本机的金山云星流（AICP）控制工具，同
 - 原生创建选项：实时读取当前区域的镜像、资源组、开发/训练队列、GPU、存储、EIP 和 KCR 配置。
 - 可编辑模板：选择模板后会回填完整创建页面，可继续做少量或大幅修改；只有明确点击保存时才会更新模板。
 - 登录资料复用：使用独立 Microsoft Edge 配置；会话过期后通常只需重新输入手机验证码。
+- 无显示器远端登录：Linux 服务器可自动启动 Xvfb、x11vnc 和 noVNC，在本地浏览器完成服务器侧 Edge 的手机验证。
 - 安全防护：写操作需要确认，CLI 支持先用 `--dry-run` 检查最终参数；敏感字段默认隐藏。
 
 ## 系统要求
@@ -28,7 +29,7 @@ AICP Desk 是一个运行在本机的金山云星流（AICP）控制工具，同
 | Windows（仍受 Node.js 22 与 Edge 支持的版本） | 支持 | `install.ps1` |
 | macOS（Intel / Apple Silicon） | 支持 | `install.sh` |
 | Linux（发行版需能安装 Microsoft Edge） | 支持 | `install.sh` |
-| Linux 无桌面环境 | 支持 CLI；GUI 用 `--no-open` 后通过本地端口访问 | `install.sh` |
+| Linux 无桌面环境（amd64/x86_64） | 支持 CLI 和远端登录；GUI 用 `--no-open` 后转发端口访问 | `install.sh` |
 
 所有平台均需要：
 
@@ -173,6 +174,159 @@ Windows 示例：
 ```powershell
 aicp config set edgePath "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 ```
+
+## Linux 无显示器服务器登录（VS Code Remote）
+
+这是远端服务器推荐的登录方式。Edge 实际运行在服务器上，所以登录后的 Cookie、保存的账号密码和 AICP 会话也留在服务器；本地电脑只通过 VS Code 端口转发查看登录画面。服务器不需要物理显示器，也不需要在本地电脑安装 Edge，本地任意现代浏览器均可打开 noVNC 页面。
+
+远端模式使用以下本机回环链路：
+
+```text
+本地浏览器 → VS Code 转发 → 服务器 127.0.0.1:6080 (noVNC)
+                                → 127.0.0.1:5900 (x11vnc)
+                                → :99 (Xvfb) → 服务器上的 Edge
+```
+
+`6080`、`5900` 和 Edge 调试端口都只监听服务器的 `127.0.0.1`，无需开放安全组或防火墙端口。不要把 VS Code 转发端口的可见性改成 Public。
+
+### 1. 远端前置条件
+
+- Debian/Ubuntu amd64（`dpkg --print-architecture` 输出 `amd64`）。Microsoft Edge Linux 版不支持常见的 ARM64 服务器。
+- Node.js 22 或更高版本。
+- 以普通用户运行 AICP Desk；不要使用 `sudo aicp ...` 或 root 用户启动 Edge。
+- 服务器能访问 `packages.microsoft.com`、金山云登录页和 AICP 控制台。
+- `AICP_HOME` 位于该用户的持久、私有磁盘目录。不要放在会被任务结束时清空的临时目录。
+
+从仓库运行一次依赖安装脚本。它会配置 Microsoft 官方 Edge APT 仓库，并安装 Edge、Xvfb、x11vnc、noVNC、websockify 和 openbox：
+
+```bash
+chmod +x scripts/install-remote-ui-debian.sh install.sh
+./scripts/install-remote-ui-debian.sh
+./install.sh --no-shortcut
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+如果 AICP Desk 已经安装，脚本也位于：
+
+```text
+${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app/scripts/install-remote-ui-debian.sh
+```
+
+其他 Linux 发行版需要用自己的包管理器安装同名组件，然后用 `aicp config set edgePath /path/to/microsoft-edge` 指定 Edge。当前自动安装脚本只支持 Debian/Ubuntu amd64。
+
+### 2. 让 Agent 先做只读自检
+
+```bash
+aicp remote-ui doctor
+```
+
+输出中的 `ready` 必须为 `true`。如果为 `false`，命令会返回非零退出码，`problems` 会列出缺少的程序或 noVNC 网页目录，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
+
+```bash
+aicp login --remote-ui --web-root /opt/noVNC --yes
+```
+
+### 3. 启动登录界面并转发打印出的端口
+
+```bash
+aicp login --remote-ui --yes
+```
+
+命令会明确打印以下内容，端口号也会包含在 `status` 输出中：
+
+```text
+远端网页端口: 6080
+VS Code 转发端口: 6080
+登录地址: http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale
+```
+
+在 VS Code 中打开底部的“端口 / Ports”面板，选择“转发端口 / Forward a Port”，输入命令打印的 `6080`。随后点击 VS Code 给出的转发地址，或在已建立转发的情况下点击终端中的登录地址。若本机 `6080` 已占用，VS Code 可能分配不同的本地端口，应打开“端口”面板中显示的本地地址。
+
+如果不用 VS Code，也可以从本地电脑建立 SSH 隧道：
+
+```bash
+ssh -N -L 6080:127.0.0.1:6080 USER@SERVER
+```
+
+然后在本地浏览器打开终端打印的登录地址。SSH 使用了不同本地端口时，把 URL 中的 `6080` 改为对应本地端口。
+
+### 4. 人工完成 MFA，然后关闭远端画面
+
+在 noVNC 页面中输入账号、密码和新的手机验证码。首次登录可以接受 Edge 的“保存密码”提示。确认登录成功后，在远端终端验证真实接口并停止画面服务：
+
+```bash
+aicp dev list --mine
+aicp remote-ui stop --yes
+```
+
+`stop` 会先正常关闭 Edge，再停止 noVNC、x11vnc、openbox 和 Xvfb；不会删除浏览器配置、Cookie 或已保存密码。之后 `aicp dev ...`、`aicp train ...`、`aicp gpu` 等命令会在服务器上按需启动不可见的 Edge，并复用相同登录态。
+
+需要从本地浏览器使用远端 GUI 时，在另一个远端终端启动并保持该命令运行：
+
+```bash
+aicp gui --no-open --port 17863
+```
+
+再用 VS Code 转发它打印的 `17863` 端口。登录 noVNC 的 `6080` 只在人工登录时需要；日常 GUI 使用的是独立的 `17863`。
+
+会话过期后重新执行 `aicp login --remote-ui --yes`。用户名和密码通常会由 Edge 自动填充，只需输入新的手机验证码。查看或找回启动时打印的端口：
+
+```bash
+aicp remote-ui status
+```
+
+自定义端口和虚拟显示器：
+
+```bash
+aicp login --remote-ui --web-port 16080 --vnc-port 15900 --display :109 --yes
+```
+
+### 5. 远端 Agent 可直接执行的流程
+
+Agent 可以负责安装、启动和验证，但手机验证码必须由用户本人在转发页面中输入。建议给 Agent 以下顺序：
+
+```bash
+# 在克隆的仓库中执行；系统依赖只需安装一次
+./scripts/install-remote-ui-debian.sh
+./install.sh --no-shortcut
+export PATH="$HOME/.local/bin:$PATH"
+
+# 不修改云端资源的检查
+aicp remote-ui doctor
+
+# 启动后，把命令打印的“VS Code 转发端口”和登录地址报告给用户，然后等待用户确认登录完成
+aicp login --remote-ui --yes
+
+# 用户确认后再验证；不要替用户输入或记录验证码
+aicp dev list --mine
+aicp remote-ui stop --yes
+```
+
+Agent 不应读取、复制、上传或提交 `AICP_HOME` 下的 `edge-profile/`。也不要把 noVNC 端口绑定到 `0.0.0.0`、公网 IP 或公开转发。
+
+### 密码存储与安全边界
+
+带桌面的 Linux 通常由 Edge 使用 Gnome Keyring 或 KWallet 保护密码（参见 [Microsoft Edge 密码管理器安全说明](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-security-password-manager-security)）；纯命令行服务器通常没有可解锁的桌面密钥环。为确保无显示器模式在重启登录界面后仍能读取同一份 Cookie 和可选保存的密码，AICP Desk 会让该专用 Edge 配置一致使用 Chromium 的 `basic` 密码存储模式。
+
+这比桌面密钥环保护弱：安全性主要依赖 Linux 用户权限、服务器磁盘和 `AICP_HOME` 目录权限。只在受信任的专用账号下使用，建议启用磁盘加密并执行：
+
+```bash
+chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
+```
+
+如果服务器为多人共用或不允许在磁盘保存密码，请不要接受 Edge 的“保存密码”提示；Cookie 仍会保留，但重新登录时需要再次输入密码和手机验证码。运行 `aicp logout --forget --yes` 会删除整个专用 Edge 配置和其中保存的密码。
+
+### 常见问题
+
+| 现象 | 处理方式 |
+| --- | --- |
+| `ready: false` 或提示缺少 Xvfb/noVNC | 运行 `scripts/install-remote-ui-debian.sh`，再执行 `aicp remote-ui doctor`。 |
+| 提示找不到 noVNC 网页 | 查找包含 `vnc.html` 的目录，并用 `--web-root` 指定。Debian/Ubuntu 通常是 `/usr/share/novnc`。 |
+| `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
+| 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |
+| VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
+| 服务器是 ARM64 | Edge Linux 当前没有对应服务器安装包；请改用 amd64 服务器。 |
+| Agent 提示登录过期 | 重新启动远端 UI，让用户完成新手机验证码；不要让 Agent 索要验证码。 |
 
 ## GUI 用法
 
@@ -446,6 +600,8 @@ AICP_HOME=/secure/path/aicp aicp session
 - `config.json`：区域、用户名、端口等本地设置。
 - `templates/`：开发机和训练任务模板。
 - `edge-profile/`：独立 Edge 登录资料和 Edge 保存的密码。
+- `remote-ui.json`：正在运行的远端画面进程与端口；执行 `aicp remote-ui stop` 后删除。
+- `remote-ui-profile.json`：标记无显示器服务器使用的密码存储模式；`logout --forget` 时删除。
 
 不要将这些数据目录加入 Git，也不要共享给其他人。
 

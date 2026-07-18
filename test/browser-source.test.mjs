@@ -13,6 +13,15 @@ test("normal logout clears cookies without deleting the Edge profile", () => {
 test("forget-login explicitly deletes the dedicated Edge profile", () => {
   const forgetLogin = source.slice(source.indexOf("async forgetLogin()"), source.indexOf("async logout("));
   assert.match(forgetLogin, /rm\(this\.paths\.browserProfile/);
+  assert.match(forgetLogin, /rm\(this\.paths\.remoteUiProfile/);
+});
+
+test("headless Linux requests reuse the password store selected by remote UI login", () => {
+  assert.match(source, /remoteUiProfile/);
+  assert.match(source, /--password-store=\$\{passwordStore\}/);
+  const launchHeadless = source.slice(source.indexOf("async launchHeadless()"), source.indexOf("async withBrowser("));
+  assert.match(launchHeadless, /exists\(this\.paths\.remoteUiProfile\)/);
+  assert.match(launchHeadless, /passwordStore: "basic"|\? "basic"/);
 });
 
 test("browser requests use a shared reference-counted session lease", () => {

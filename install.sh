@@ -35,6 +35,10 @@ case "$APP" in
   ""|/|"$HOME") printf 'Unsafe installation path: %s\n' "$APP" >&2; exit 1 ;;
 esac
 
+if [ "$SYSTEM" = "Linux" ] && [ -e "$APP/bin/aicp.mjs" ]; then
+  node "$APP/bin/aicp.mjs" remote-ui stop --yes >/dev/null 2>&1 || true
+fi
+
 if [ -e "$APP/bin/aicp.mjs" ]; then
   ps -ax -o pid= -o command= 2>/dev/null | while IFS= read -r process_line; do
     case "$process_line" in
@@ -53,10 +57,11 @@ fi
 mkdir -p "$ROOT" "$BIN"
 rm -rf "$APP"
 mkdir -p "$APP"
-for item in bin lib web docs examples package.json README.md install.sh uninstall.sh aicp start-gui.sh; do
+for item in bin lib web docs examples scripts package.json README.md install.sh uninstall.sh aicp start-gui.sh; do
   if [ -e "$SOURCE/$item" ]; then cp -R "$SOURCE/$item" "$APP/"; fi
 done
 chmod +x "$APP/bin/aicp.mjs" "$APP/aicp" "$APP/start-gui.sh" "$APP/install.sh" "$APP/uninstall.sh"
+if [ -e "$APP/scripts/install-remote-ui-debian.sh" ]; then chmod +x "$APP/scripts/install-remote-ui-debian.sh"; fi
 
 LAUNCHER="$BIN/aicp"
 printf '#!/usr/bin/env sh\nexec node "%s/bin/aicp.mjs" "$@"\n' "$APP" > "$LAUNCHER"

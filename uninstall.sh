@@ -34,6 +34,10 @@ if [ "$YES" -eq 0 ]; then
   if [ "$answer" != "yes" ]; then printf 'Cancelled.\n'; exit 0; fi
 fi
 
+if [ "$SYSTEM" = "Linux" ] && [ -e "$ROOT/app/bin/aicp.mjs" ]; then
+  node "$ROOT/app/bin/aicp.mjs" remote-ui stop --yes >/dev/null 2>&1 || true
+fi
+
 safe_remove() {
   target=$1
   case "$target" in ""|/|"$HOME") printf 'Refusing to remove unsafe path: %s\n' "$target" >&2; exit 1 ;; esac
