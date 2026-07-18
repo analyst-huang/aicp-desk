@@ -204,7 +204,7 @@ aicp config set edgePath "C:\Program Files (x86)\Microsoft\Edge\Application\msed
 2. 环境缺失时，复用 AICP `runtime/` 中上次已经下载的私有副本。
 3. 仅下载仍然缺失的组件和依赖，解包到 AICP 私有运行时。
 
-因此，组件齐全时不会访问软件包仓库；混合环境只补缺失项；重复安装也会复用缓存。安装开始时会打印每个组件是环境路径、`private (cached)` 还是 `private (install)`。它不会执行 `sudo`、`apt-get install` 或 `dpkg -i`，不会添加系统 APT 源，也不会写入 `/usr`、`/opt`、`/etc` 和系统包数据库：
+因此，组件齐全时不会访问软件包仓库；混合环境只补缺失项；重复安装也会复用缓存。安装开始时会打印每个组件是环境路径、`private (cached)` 还是 `private (install)`。安装器会从 Microsoft 元数据中按版本选择最新 stable Edge，并把验证过的下载保存在 `runtime/` 同级的 `cache/edge/`；Edge 大文件下载会显示进度、支持断点续传并自动重试。Debian 依赖会跳过主机已经安装的包并分批下载，某批失败时才退回逐包定位。它不会执行 `sudo`、`apt-get install` 或 `dpkg -i`，不会添加系统 APT 源，也不会写入 `/usr`、`/opt`、`/etc` 和系统包数据库：
 
 ```bash
 chmod +x install.sh
@@ -225,11 +225,12 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app/scripts/install-remote-ui-debi
 ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime/
 ├── bin/       # 仅缺失组件需要的私有启动包装器
 ├── rootfs/    # 已下载的缺失组件、noVNC 网页和共享库
+├── xdg-config/ # 私有 Edge 可写的配置/Crashpad 目录
 ├── manifest.txt  # 记录每个组件实际选择的来源
 └── root-model / allow-no-sandbox  # 仅 root-container 模式存在
 ```
 
-如果设置了 `AICP_INSTALL_DIR`，则位于 `$AICP_INSTALL_DIR/runtime`。重新运行脚本会复制并复用已有私有组件，在临时目录补齐和验证，成功后再替换旧版本；普通的 `install.sh` 升级只替换 `app/`，也会保留现有 `runtime/`。运行时解析始终把环境路径放在私有目录之前，所以之后在环境中安装的组件会自动优先使用。
+如果设置了 `AICP_INSTALL_DIR`，则位于 `$AICP_INSTALL_DIR/runtime`，Edge 下载缓存位于 `$AICP_INSTALL_DIR/cache/edge`。重新运行脚本会复制并复用已有私有组件，在临时目录补齐和验证，成功后再替换旧版本；普通的 `install.sh` 升级只替换 `app/`，也会保留现有 `runtime/` 和缓存。运行时解析始终把环境路径放在私有目录之前，所以之后在环境中安装的组件会自动优先使用。
 
 安装器会先读取当前 UID，并检查 `/.dockerenv`、`/run/.containerenv`、Kubernetes 环境变量和 cgroup：
 
@@ -359,6 +360,8 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | 容器 root 被当成裸机 root | 容器检测可能被运行时隐藏；确认隔离边界后执行 `aicp remote-ui install --allow-root --yes`。 |
 | 提示找不到 noVNC 网页 | 重新运行混合安装脚本；它会先查 `/usr/share/novnc` 等环境目录，再补到 `runtime/rootfs/usr/share/novnc`。自定义安装可用 `--web-root` 指定。 |
 | 安装仍然准备下载很多包 | 查看安装开头的 component plan，并运行 `aicp remote-ui doctor` 查看实际路径；环境组件必须能通过 `PATH` 或文档中的常见目录找到。已有私有副本会显示为 `private (cached)`。 |
+| Edge 下载长时间没有反馈 | v0.13.1 起 Edge 主包会显示进度并自动重试；请确认能访问 `packages.microsoft.com`。如果启动验证失败，安装器会打印最后 30 行 Edge 输出。 |
+| Edge 报 `crashpad`、`--database is required` 或 `$HOME/.config` 不可写 | AICP 会使用自己的 `edge-config/`，不再依赖用户的 `$HOME/.config`。重新安装或升级到 v0.13.1。 |
 | `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
 | 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |
 | VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
@@ -637,6 +640,7 @@ AICP_HOME=/secure/path/aicp aicp session
 - `config.json`：区域、用户名、端口等本地设置。
 - `templates/`：开发机和训练任务模板。
 - `edge-profile/`：独立 Edge 登录资料和 Edge 保存的密码。
+- `edge-config/`：AICP 专用且可写的 Edge/Crashpad 配置；`logout --forget` 时删除。
 - `remote-ui.json`：正在运行的远端画面进程与端口；执行 `aicp remote-ui stop` 后删除。
 - `remote-ui-profile.json`：标记无显示器服务器使用的密码存储模式；`logout --forget` 时删除。
 

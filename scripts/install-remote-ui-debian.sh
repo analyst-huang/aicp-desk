@@ -143,7 +143,7 @@ if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ] || [ -n "$MISSING_SEED_PACKAGES" ]; then
   esac
 fi
 if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ]; then
-  for command_name in curl gzip; do
+  for command_name in curl gzip tail; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
       printf 'Missing host prerequisite needed for private Edge: %s\n' "$command_name" >&2
       exit 1
@@ -168,24 +168,57 @@ fi
 if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ]; then
   printf 'Downloading missing Microsoft Edge into the AICP private runtime...\n'
   EDGE_REPOSITORY=https://packages.microsoft.com/repos/edge
-  curl -fsSL "$EDGE_REPOSITORY/dists/stable/main/binary-amd64/Packages.gz" -o "$DOWNLOADS/edge-packages.gz"
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 20 \
+    "$EDGE_REPOSITORY/dists/stable/main/binary-amd64/Packages.gz" -o "$DOWNLOADS/edge-packages.gz"
   gzip -dc "$DOWNLOADS/edge-packages.gz" > "$DOWNLOADS/edge-packages"
-  EDGE_FILENAME=$(awk '
+  EDGE_ENTRY=$(awk '
     BEGIN { RS=""; FS="\n" }
     {
-      package_name=""; filename=""
+      package_name=""; package_version=""; filename=""
       for (field_number=1; field_number<=NF; field_number++) {
         if ($field_number ~ /^Package: /) { package_name=substr($field_number, 10) }
+        if ($field_number ~ /^Version: /) { package_version=substr($field_number, 10) }
         if ($field_number ~ /^Filename: /) { filename=substr($field_number, 11) }
       }
-      if (package_name == "microsoft-edge-stable" && filename != "") { print filename; exit }
+      if (package_name == "microsoft-edge-stable" && package_version != "" && filename != "") {
+        print package_version " " filename
+      }
     }
-  ' "$DOWNLOADS/edge-packages")
-  if [ -z "$EDGE_FILENAME" ]; then
+  ' "$DOWNLOADS/edge-packages" | sort -k1,1V | tail -n 1)
+  if [ -z "$EDGE_ENTRY" ]; then
     printf 'Could not locate microsoft-edge-stable in the Microsoft repository metadata.\n' >&2
     exit 1
   fi
-  curl -fsSL "$EDGE_REPOSITORY/$EDGE_FILENAME" -o "$DOWNLOADS/debs/microsoft-edge-stable.deb"
+  EDGE_VERSION=${EDGE_ENTRY%% *}
+  EDGE_FILENAME=${EDGE_ENTRY#* }
+  EDGE_CACHE_DIR="$ROOT/cache/edge"
+  EDGE_CACHE_FILE="$EDGE_CACHE_DIR/${EDGE_FILENAME##*/}"
+  EDGE_CACHE_PARTIAL="$EDGE_CACHE_FILE.partial"
+  mkdir -p "$EDGE_CACHE_DIR"
+  printf 'Edge package: %s (%s)\n' "$EDGE_VERSION" "$EDGE_FILENAME"
+  if dpkg-deb --info "$EDGE_CACHE_FILE" >/dev/null 2>&1; then
+    printf 'Reusing verified Edge download cache: %s\n' "$EDGE_CACHE_FILE"
+  else
+    rm -f "$EDGE_CACHE_FILE"
+    printf 'Downloading Edge into the persistent AICP cache...\n'
+    if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --progress-bar --continue-at - \
+      "$EDGE_REPOSITORY/$EDGE_FILENAME" -o "$EDGE_CACHE_PARTIAL"; then
+      printf 'Could not resume the partial Edge download; retrying from the beginning...\n' >&2
+      rm -f "$EDGE_CACHE_PARTIAL"
+      curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --progress-bar \
+        "$EDGE_REPOSITORY/$EDGE_FILENAME" -o "$EDGE_CACHE_PARTIAL"
+    fi
+    if ! dpkg-deb --info "$EDGE_CACHE_PARTIAL" >/dev/null 2>&1; then
+      printf 'The downloaded Microsoft Edge package is incomplete or invalid. Retry the installer.\n' >&2
+      exit 1
+    fi
+    mv "$EDGE_CACHE_PARTIAL" "$EDGE_CACHE_FILE"
+  fi
+  EDGE_DEB_PATH=$EDGE_CACHE_FILE
+  if ! dpkg-deb --info "$EDGE_DEB_PATH" >/dev/null 2>&1; then
+    printf 'The downloaded Microsoft Edge package is incomplete or invalid. Retry the installer.\n' >&2
+    exit 1
+  fi
 fi
 
 AVAILABLE_PACKAGES=$MISSING_SEED_PACKAGES
@@ -207,20 +240,54 @@ if [ -n "$AVAILABLE_PACKAGES" ]; then
   done
   sort -u "$DOWNLOADS/package-list" -o "$DOWNLOADS/package-list"
 
+  download_package_batch() {
+    [ "$#" -gt 0 ] || return 0
+    printf '  downloading dependency batch (%s packages)...\n' "$#"
+    if (cd "$DOWNLOADS/debs" && apt-get download "$@" >/dev/null 2>&1); then return 0; fi
+    printf '  batch had an unavailable package; retrying only unresolved items...\n' >&2
+    for batch_package in "$@"; do
+      if ls "$DOWNLOADS/debs/${batch_package}_"*.deb >/dev/null 2>&1; then continue; fi
+      if ! (cd "$DOWNLOADS/debs" && apt-get download "$batch_package" >/dev/null 2>&1); then
+        case " $MISSING_SEED_PACKAGES " in
+          *" $batch_package "*) printf 'Failed to download required package: %s\n' "$batch_package" >&2; exit 1 ;;
+          *) printf 'Warning: optional package could not be downloaded: %s\n' "$batch_package" >&2 ;;
+        esac
+      fi
+    done
+  }
+
+  batch_count=0
+  reused_host_packages=0
+  set --
   while IFS= read -r package_name; do
     [ -n "$package_name" ] || continue
     case "$package_name" in
       libc6|libgcc-s1|libstdc++6|zlib1g|libselinux1|libpcre2-8-0) continue ;;
     esac
-    if ! (cd "$DOWNLOADS/debs" && apt-get download "$package_name" >/dev/null 2>&1); then
-      case " $MISSING_SEED_PACKAGES " in
-        *" $package_name "*) printf 'Failed to download required package: %s\n' "$package_name" >&2; exit 1 ;;
-        *) printf 'Warning: optional package could not be downloaded: %s\n' "$package_name" >&2 ;;
-      esac
+    case " $MISSING_SEED_PACKAGES " in
+      *" $package_name "*) required_seed=1 ;;
+      *) required_seed=0 ;;
+    esac
+    if [ "$required_seed" -eq 0 ] && command -v dpkg-query >/dev/null 2>&1 \
+      && dpkg-query -W -f='${Status}' "$package_name" 2>/dev/null | grep -qx 'install ok installed'; then
+      reused_host_packages=$((reused_host_packages + 1))
+      continue
+    fi
+    set -- "$@" "$package_name"
+    batch_count=$((batch_count + 1))
+    if [ "$batch_count" -ge 32 ]; then
+      download_package_batch "$@"
+      set --
+      batch_count=0
     fi
   done < "$DOWNLOADS/package-list"
+  download_package_batch "$@"
+  printf '  reused %s already-installed host packages.\n' "$reused_host_packages"
 fi
 
+if [ "$NEED_EDGE_DOWNLOAD" -eq 1 ]; then
+  dpkg-deb -x "$EDGE_DEB_PATH" "$STAGING/rootfs"
+fi
 for package_file in "$DOWNLOADS"/debs/*.deb; do
   [ -e "$package_file" ] || continue
   dpkg-deb -x "$package_file" "$STAGING/rootfs"
@@ -265,6 +332,8 @@ if [ -z "$EDGE_COMMAND" ]; then printf '%s\n' \
   'PRIVATE_LIBS="$ROOTFS/opt/microsoft/msedge:$ROOTFS/usr/lib/x86_64-linux-gnu:$ROOTFS/lib/x86_64-linux-gnu:$ROOTFS/usr/lib:$ROOTFS/lib"' \
   'export LD_LIBRARY_PATH="$PRIVATE_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' \
   'export PATH="$ROOTFS/usr/bin:$PATH"' \
+  'export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$RUNTIME/xdg-config}"' \
+  'mkdir -p "$XDG_CONFIG_HOME"' \
   'SANDBOX_ARGUMENT=--disable-setuid-sandbox' \
   'if [ -e "$RUNTIME/allow-no-sandbox" ]; then SANDBOX_ARGUMENT=--no-sandbox; fi' \
   'exec "$ROOTFS/opt/microsoft/msedge/msedge" "$SANDBOX_ARGUMENT" "$@"' \
@@ -331,9 +400,14 @@ EDGE_SMOKE_COMMAND=$EDGE_COMMAND
 if [ -z "$EDGE_SMOKE_COMMAND" ]; then EDGE_SMOKE_COMMAND="$STAGING/bin/microsoft-edge-stable"; fi
 EDGE_SMOKE_SANDBOX=""
 if [ "$ROOT_MODEL" -eq 1 ] || [ "${AICP_ALLOW_NO_SANDBOX:-0}" = "1" ]; then EDGE_SMOKE_SANDBOX=--no-sandbox; fi
-if ! "$EDGE_SMOKE_COMMAND" $EDGE_SMOKE_SANDBOX --headless=new --disable-gpu --no-first-run \
-  --user-data-dir="$DOWNLOADS/edge-smoke-profile" --dump-dom about:blank >/dev/null 2>&1; then
+EDGE_SMOKE_LOG="$DOWNLOADS/edge-smoke.log"
+EDGE_SMOKE_CONFIG="$STAGING/xdg-config"
+mkdir -p "$EDGE_SMOKE_CONFIG"
+if ! XDG_CONFIG_HOME="$EDGE_SMOKE_CONFIG" "$EDGE_SMOKE_COMMAND" $EDGE_SMOKE_SANDBOX --headless=new --disable-gpu --no-first-run \
+  --user-data-dir="$DOWNLOADS/edge-smoke-profile" --dump-dom about:blank >"$EDGE_SMOKE_LOG" 2>&1; then
   printf 'The selected Edge could not start. Check its libraries and the current sandbox mode.\n' >&2
+  printf '%s\n' '--- Edge smoke-test output ---' >&2
+  tail -n 30 "$EDGE_SMOKE_LOG" >&2 || true
   printf 'On a trusted dedicated server only, retry with: AICP_ALLOW_NO_SANDBOX=1 %s\n' "$0" >&2
   exit 1
 fi

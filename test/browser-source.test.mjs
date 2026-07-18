@@ -33,6 +33,14 @@ test("root-container markers apply no-sandbox even when Edge comes from the envi
   assert.match(launchHeadless, /noSandbox/);
 });
 
+test("Linux Edge always receives a private writable XDG config directory", () => {
+  assert.match(source, /XDG_CONFIG_HOME: this\.paths\.edgeConfig/);
+  const launchLogin = source.slice(source.indexOf("async launchLogin("), source.indexOf("async launchHeadless("));
+  const launchHeadless = source.slice(source.indexOf("async launchHeadless()"), source.indexOf("async withBrowser("));
+  assert.match(launchLogin, /browserEnvironment/);
+  assert.match(launchHeadless, /browserEnvironment/);
+});
+
 test("browser requests use a shared reference-counted session lease", () => {
   assert.match(source, /async withBrowser\(callback\)/);
   assert.match(source, /this\.browserUsers \+= 1/);
