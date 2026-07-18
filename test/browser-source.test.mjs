@@ -27,3 +27,9 @@ test("platform empty-token errors are reported as an expired login", () => {
   assert.match(source, /UserTokenEmpty/);
   assert.match(source, /登录状态已过期/);
 });
+
+test("a visible passport tab wins over a stale restored console tab", () => {
+  const waitForTarget = source.slice(source.indexOf("async waitForAicpTarget"), source.indexOf("browserArgs("));
+  assert.ok(waitForTarget.indexOf("const passport =") < waitForTarget.indexOf("const target ="));
+  assert.ok(waitForTarget.indexOf("if (passport)") < waitForTarget.indexOf("if (target)"));
+});
