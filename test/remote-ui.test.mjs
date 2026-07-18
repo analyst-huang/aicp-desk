@@ -53,6 +53,7 @@ test("doctor refuses root and explains missing dependencies", async () => {
   const report = await remoteUiDoctor({}, {}, {
     platform: "linux",
     getuid: () => 0,
+    containerDetected: false,
     resolveExecutable: async () => null,
     findNoVnc: async () => null,
     findEdge: async () => { throw new Error("找不到 Microsoft Edge"); },

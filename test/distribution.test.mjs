@@ -53,6 +53,8 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   assert.match(dependencyInstaller, /CONTAINER_DETECTED/);
   assert.match(dependencyInstaller, /RUNTIME_MODE=root-container/);
   assert.match(dependencyInstaller, /AICP_ALLOW_ROOT/);
+  assert.doesNotMatch(dependencyInstaller, /for \(index=/);
+  assert.match(dependencyInstaller, /for \(field_number=/);
   assert.doesNotMatch(dependencyInstaller, /sudo apt-get|apt-get install|dpkg -i/);
   assert.match(dependencyInstaller, /No files were written to \/usr, \/opt, or \/etc/);
   assert.match(cli, /aicp remote-ui doctor/);

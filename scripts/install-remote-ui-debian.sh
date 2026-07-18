@@ -73,9 +73,9 @@ EDGE_FILENAME=$(awk '
   BEGIN { RS=""; FS="\n" }
   {
     package_name=""; filename=""
-    for (index=1; index<=NF; index++) {
-      if ($index ~ /^Package: /) { package_name=substr($index, 10) }
-      if ($index ~ /^Filename: /) { filename=substr($index, 11) }
+    for (field_number=1; field_number<=NF; field_number++) {
+      if ($field_number ~ /^Package: /) { package_name=substr($field_number, 10) }
+      if ($field_number ~ /^Filename: /) { filename=substr($field_number, 11) }
     }
     if (package_name == "microsoft-edge-stable" && filename != "") { print filename; exit }
   }
