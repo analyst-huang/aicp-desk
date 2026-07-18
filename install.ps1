@@ -19,6 +19,24 @@ $app = Join-Path $root 'app'
 $bin = Join-Path $root 'bin'
 New-Item -ItemType Directory -Force -Path $root, $app, $bin | Out-Null
 
+$installedEntry = Join-Path $app 'bin\aicp.mjs'
+if (Test-Path -LiteralPath $installedEntry) {
+  try {
+    $guiProcesses = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction Stop | Where-Object {
+      $_.CommandLine -and
+      $_.CommandLine.IndexOf($installedEntry, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+      $_.CommandLine -match '\bgui\b'
+    }
+    foreach ($process in $guiProcesses) {
+      Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+      Write-Host "Stopped running AICP Desk GUI (PID $($process.ProcessId))."
+    }
+    if ($guiProcesses) { Start-Sleep -Milliseconds 250 }
+  } catch {
+    Write-Warning "Could not stop a running AICP Desk GUI automatically: $($_.Exception.Message)"
+  }
+}
+
 Get-ChildItem -LiteralPath $app -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 $distributionItems = @(
   'bin', 'lib', 'web', 'docs', 'examples', 'package.json', 'README.md',

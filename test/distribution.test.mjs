@@ -17,10 +17,13 @@ test("distribution includes installers and launchers for all supported platforms
   ]);
   assert.match(windowsInstall, /LOCALAPPDATA/);
   assert.match(windowsInstall, /aicp\.cmd/);
+  assert.match(windowsInstall, /Get-CimInstance Win32_Process/);
+  assert.match(windowsInstall, /Stop-Process/);
   assert.match(windowsUninstall, /KeepData/);
   assert.match(unixInstall, /Darwin/);
   assert.match(unixInstall, /Linux/);
   assert.match(unixInstall, /\.local\/bin/);
+  assert.match(unixInstall, /Stopped running AICP Desk GUI/);
   assert.match(unixUninstall, /--keep-data/);
   assert.match(unixLauncher, /^#!\/usr\/bin\/env sh/);
 });

@@ -35,6 +35,21 @@ case "$APP" in
   ""|/|"$HOME") printf 'Unsafe installation path: %s\n' "$APP" >&2; exit 1 ;;
 esac
 
+if [ -e "$APP/bin/aicp.mjs" ]; then
+  ps -ax -o pid= -o command= 2>/dev/null | while IFS= read -r process_line; do
+    case "$process_line" in
+      *"$APP/bin/aicp.mjs"*" gui"*)
+        process_id=$(printf '%s\n' "$process_line" | sed -E 's/^[[:space:]]*([0-9]+).*/\1/')
+        if [ -n "$process_id" ] && [ "$process_id" != "$$" ]; then
+          kill "$process_id" 2>/dev/null || true
+          printf 'Stopped running AICP Desk GUI (PID %s).\n' "$process_id"
+        fi
+        ;;
+    esac
+  done
+  sleep 1
+fi
+
 mkdir -p "$ROOT" "$BIN"
 rm -rf "$APP"
 mkdir -p "$APP"

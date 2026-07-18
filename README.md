@@ -427,7 +427,7 @@ AICP_HOME=/secure/path/aicp aicp session
 
 ## 更新
 
-拉取新版本后重新运行对应安装脚本即可。安装器只替换 `app` 与命令入口，不会删除模板、配置或独立 Edge 登录资料。
+拉取新版本后重新运行对应安装脚本即可。安装器会先停止正在运行的旧版 AICP Desk GUI，再替换 `app` 与命令入口；不会删除模板、配置或独立 Edge 登录资料。安装完成后重新运行 `aicp gui`。
 
 Windows：
 
