@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  detectContainerEnvironment,
   normalizeRemoteUiOptions,
   remoteUiDoctor,
   remoteUiProcessSpecs,
@@ -57,8 +58,43 @@ test("doctor refuses root and explains missing dependencies", async () => {
     findEdge: async () => { throw new Error("找不到 Microsoft Edge"); },
   });
   assert.equal(report.ready, false);
-  assert.match(report.problems.join("\n"), /不要以 root/);
+  assert.match(report.problems.join("\n"), /裸机 root/);
   assert.match(report.problems.join("\n"), /Xvfb/);
   assert.match(report.problems.join("\n"), /noVNC/);
   assert.match(report.problems.join("\n"), /Microsoft Edge/);
+});
+
+test("container detection recognizes standard runtime markers and cgroups", async () => {
+  assert.equal(await detectContainerEnvironment({
+    env: {},
+    existsFn: async (marker) => marker === "/.dockerenv",
+    readFileFn: async () => "",
+  }), true);
+  assert.equal(await detectContainerEnvironment({
+    env: {},
+    existsFn: async () => false,
+    readFileFn: async () => "0::/kubepods.slice/pod123",
+  }), true);
+  assert.equal(await detectContainerEnvironment({
+    env: {},
+    existsFn: async () => false,
+    readFileFn: async () => "0::/user.slice/user-1000.slice",
+  }), false);
+});
+
+test("doctor accepts an explicitly installed root-container runtime with a warning", async () => {
+  const report = await remoteUiDoctor({}, {}, {
+    platform: "linux",
+    getuid: () => 0,
+    containerDetected: true,
+    rootModel: true,
+    noSandbox: true,
+    resolveExecutable: async (candidate) => `/mock/${candidate}`,
+    findNoVnc: async () => ({ root: "/mock/novnc", entrypoint: "vnc.html" }),
+    findEdge: async () => "/mock/microsoft-edge",
+  });
+  assert.equal(report.ready, true);
+  assert.equal(report.rootModel, true);
+  assert.equal(report.privateRuntime.mode, "root-container");
+  assert.match(report.warnings.join("\n"), /root-container/);
 });

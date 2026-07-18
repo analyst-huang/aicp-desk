@@ -193,7 +193,7 @@ aicp config set edgePath "C:\Program Files (x86)\Microsoft\Edge\Application\msed
 
 - Debian/Ubuntu amd64（`dpkg --print-architecture` 输出 `amd64`）。Microsoft Edge Linux 版不支持常见的 ARM64 服务器。
 - Node.js 22 或更高版本。
-- 以普通用户运行 AICP Desk；不要使用 `sudo aicp ...` 或 root 用户启动 Edge。
+- 普通服务器优先使用普通用户。Docker、Podman、Kubernetes 或 LXC 容器内如果当前就是 root，安装器会自动识别并使用显式标记的 `root-container` 模式。
 - 服务器能访问 `packages.microsoft.com`、金山云登录页和 AICP 控制台。
 - 主机提供 Debian/Ubuntu 自带的 `apt-get`、`apt-cache`、`dpkg-deb`、`curl`、`gzip`、`python3` 等基础命令；脚本只用它们下载和解包，不安装软件包。
 - `AICP_HOME` 位于该用户的持久、私有磁盘目录。不要放在会被任务结束时清空的临时目录。
@@ -219,18 +219,25 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app/scripts/install-remote-ui-debi
 ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime/
 ├── bin/       # AICP 使用的私有启动包装器
 ├── rootfs/    # 只对 AICP 可见的 Edge、Xvfb、noVNC 和库文件
-└── manifest.txt
+├── manifest.txt
+└── root-model / allow-no-sandbox  # 仅 root-container 模式存在
 ```
 
 如果设置了 `AICP_INSTALL_DIR`，则位于 `$AICP_INSTALL_DIR/runtime`。重新运行脚本会在临时目录构建并验证新运行时，成功后再替换旧版本；普通的 `install.sh` 升级只替换 `app/`，会保留现有 `runtime/`。
 
-因为私有 Edge 不是 root 所有，不能使用系统级的 setuid sandbox；包装器会改用 Linux 非特权用户命名空间沙箱，安装末尾还会实际启动一次无界面 Edge 做冒烟验证。如果服务器内核禁用了非特权用户命名空间，安装会安全失败且不会替换旧运行时。仅在可信、专用且与其他用户隔离的服务器上，可以明确接受风险后使用：
+安装器会先读取当前 UID，并检查 `/.dockerenv`、`/run/.containerenv`、Kubernetes 环境变量和 cgroup：
+
+- 非 root：使用 `user-sandbox`，私有 Edge 改用 Linux 非特权用户命名空间沙箱。
+- 检测到容器内 root：自动使用 `root-container`，写入 `root-model` 与 `allow-no-sandbox` 标记；Edge 必须以 `--no-sandbox` 运行。
+- 裸机 root：默认拒绝，避免误判。确认它确实处于受控隔离环境时才显式运行 `aicp remote-ui install --allow-root --yes`。
+
+安装末尾会实际启动一次无界面 Edge 做冒烟验证，失败时不会替换旧运行时。非 root 环境如果内核禁用了用户命名空间，仅在可信、专用且与其他用户隔离的服务器上，可以明确接受风险后使用：
 
 ```bash
 aicp remote-ui install --allow-no-sandbox --yes
 ```
 
-这个选项会在私有运行时中留下 `allow-no-sandbox` 标记；不要在多人共享或运行不可信网页的服务器上使用。
+`--allow-no-sandbox` 和 root 模式都会留下可审计标记；不要在多人共享、挂载宿主机敏感目录或运行不可信网页的容器上使用。
 
 当前自动私有运行时只支持 Debian/Ubuntu amd64。其他发行版仍可手工提供 Edge 和相关组件，但脚本不会为了兼容而修改系统软件。
 
@@ -240,7 +247,7 @@ aicp remote-ui install --allow-no-sandbox --yes
 aicp remote-ui doctor
 ```
 
-输出中的 `ready` 必须为 `true`；`privateRuntime.path` 会显示实际私有安装目录，`privateRuntime.installed` 表示清单是否存在。如果 `ready` 为 `false`，命令会返回非零退出码，`problems` 会列出缺少的程序或 noVNC 网页目录，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
+输出中的 `ready` 必须为 `true`；`privateRuntime.path` 显示实际私有安装目录，`privateRuntime.mode` 显示 `user-sandbox`、`user-no-sandbox` 或 `root-container`，`containerDetected` 和 `rootModel` 记录判断结果。root 模式会在 `warnings` 中持续提示。如果 `ready` 为 `false`，命令会返回非零退出码，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
 
 ```bash
 aicp login --remote-ui --web-root "$HOME/private-noVNC" --yes
@@ -306,7 +313,7 @@ aicp login --remote-ui --web-port 16080 --vnc-port 15900 --display :109 --yes
 Agent 可以负责安装、启动和验证，但手机验证码必须由用户本人在转发页面中输入。建议给 Agent 以下顺序：
 
 ```bash
-# 在克隆的仓库中执行；系统依赖只需安装一次
+# 在克隆的仓库中执行；普通用户与容器 root 使用同一组命令
 ./install.sh --no-shortcut
 export PATH="$HOME/.local/bin:$PATH"
 aicp remote-ui install --yes
@@ -323,6 +330,8 @@ aicp remote-ui stop --yes
 ```
 
 Agent 不应读取、复制、上传或提交 `AICP_HOME` 下的 `edge-profile/`。也不要把 noVNC 端口绑定到 `0.0.0.0`、公网 IP 或公开转发。
+
+如果 Agent 当前是容器 root，不需要创建额外用户；应先检查 `doctor` 返回的 `rootModel: true` 和 `privateRuntime.mode: "root-container"`。容器不得使用 `--privileged`，不得挂载 Docker socket、宿主机根目录、SSH 密钥或其他敏感凭据。
 
 ### 密码存储与安全边界
 
@@ -341,6 +350,7 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | 现象 | 处理方式 |
 | --- | --- |
 | `ready: false` 或提示缺少 Xvfb/noVNC | 运行 `aicp remote-ui install --yes`，再执行 `doctor`；不需要 `sudo apt install`。 |
+| 容器 root 被当成裸机 root | 容器检测可能被运行时隐藏；确认隔离边界后执行 `aicp remote-ui install --allow-root --yes`。 |
 | 提示找不到 noVNC 网页 | 重新运行私有安装脚本；默认文件位于 `runtime/rootfs/usr/share/novnc`。自定义安装可用 `--web-root` 指定。 |
 | `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
 | 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |

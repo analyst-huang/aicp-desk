@@ -6,9 +6,28 @@ if [ "$(uname -s)" != "Linux" ] || ! command -v apt-get >/dev/null 2>&1 || ! com
   exit 1
 fi
 
-if [ "$(id -u)" -eq 0 ]; then
-  printf 'Do not run this installer with sudo or as root; the runtime belongs to the current AICP user.\n' >&2
-  exit 1
+USER_ID=$(id -u)
+CONTAINER_DETECTED=0
+ROOT_MODEL=0
+RUNTIME_MODE=user-sandbox
+if [ -n "${container:-}" ] || [ -n "${KUBERNETES_SERVICE_HOST:-}" ] || [ -e /.dockerenv ] || [ -e /run/.containerenv ]; then
+  CONTAINER_DETECTED=1
+elif [ -r /proc/1/cgroup ] && grep -Eqi '(docker|kubepods|containerd|libpod|podman|lxc)' /proc/1/cgroup; then
+  CONTAINER_DETECTED=1
+fi
+
+if [ "$USER_ID" -eq 0 ]; then
+  if [ "$CONTAINER_DETECTED" -eq 1 ]; then
+    ROOT_MODEL=1
+    RUNTIME_MODE=root-container
+  elif [ "${AICP_ALLOW_ROOT:-0}" = "1" ]; then
+    ROOT_MODEL=1
+    RUNTIME_MODE=root-explicit
+  else
+    printf 'Bare-metal root was detected. Root is automatic only inside a detected container.\n' >&2
+    printf 'If this environment is isolated but detection failed, retry through: aicp remote-ui install --allow-root --yes\n' >&2
+    exit 1
+  fi
 fi
 
 ARCHITECTURE=$(dpkg --print-architecture)
@@ -173,14 +192,20 @@ printf '%s\n' \
   > "$STAGING/bin/websockify"
 chmod 0755 "$STAGING/bin/websockify"
 
-if [ "${AICP_ALLOW_NO_SANDBOX:-0}" = "1" ]; then
+if [ "$ROOT_MODEL" -eq 1 ]; then
+  : > "$STAGING/root-model"
   : > "$STAGING/allow-no-sandbox"
+  printf 'Warning: %s mode detected. Edge runs as root without Chromium sandbox.\n' "$RUNTIME_MODE" >&2
+elif [ "${AICP_ALLOW_NO_SANDBOX:-0}" = "1" ]; then
+  : > "$STAGING/allow-no-sandbox"
+  RUNTIME_MODE=user-no-sandbox
   printf 'Warning: private Edge sandbox is disabled by explicit request. Use only on a trusted dedicated server.\n' >&2
 fi
 
 printf '%s\n' \
   'version=1' \
   'scope=aicp-private-runtime' \
+  "mode=$RUNTIME_MODE" \
   "installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   "edge_package=$EDGE_FILENAME" \
   > "$STAGING/manifest.txt"
@@ -203,6 +228,7 @@ COMMITTED=1
 
 printf '\nAICP private remote UI runtime installed successfully.\n'
 printf 'Runtime: %s\n' "$RUNTIME"
+printf 'Mode: %s\n' "$RUNTIME_MODE"
 printf 'No files were written to /usr, /opt, or /etc.\n'
 printf 'Run as your normal user:\n'
 printf '  aicp remote-ui doctor\n'

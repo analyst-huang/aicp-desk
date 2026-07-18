@@ -19,7 +19,7 @@ AICP 本地控制工具
   aicp login --remote-ui [--web-port 6080] [--vnc-port 5900]
              [--display :99] [--web-root PATH] [--yes]
                                         在 Linux 无显示器服务器启动可转发登录界面
-  aicp remote-ui install [--allow-no-sandbox] [--yes]
+  aicp remote-ui install [--allow-no-sandbox] [--allow-root] [--yes]
                                         下载 AICP 私有 Edge/Xvfb/noVNC 运行时
   aicp remote-ui doctor                检查远端登录所需的 Edge/Xvfb/noVNC
   aicp remote-ui status [--json]        查看远端界面状态及待转发端口
@@ -468,14 +468,18 @@ async function main() {
     const { installRemoteUiRuntime, remoteUiDoctor, remoteUiStatus, stopRemoteUi } = await import("../lib/remote-ui.mjs");
     if (remoteAction === "install") {
       const allowNoSandbox = Boolean(options["allow-no-sandbox"]);
+      const allowRoot = Boolean(options["allow-root"]);
+      const runningAsRoot = process.getuid?.() === 0;
       const approved = await confirmAction(
-        allowNoSandbox
+        runningAsRoot
+          ? "检测到 root：容器内将自动使用 root-container/no-sandbox 模式；裸机需要 --allow-root。继续？"
+          : allowNoSandbox
           ? "将在 AICP 私有目录下载运行时，并明确禁用 Edge 沙箱；只应在可信专用服务器使用。继续？"
           : "将在 AICP 私有目录下载 Edge/Xvfb/noVNC 运行时，不修改系统包；继续？",
         { yes: Boolean(options.yes) },
       );
       if (!approved) return print("已取消");
-      return print(await installRemoteUiRuntime({ allowNoSandbox }), true);
+      return print(await installRemoteUiRuntime({ allowNoSandbox, allowRoot }), true);
     }
     if (remoteAction === "doctor") {
       const report = await remoteUiDoctor(context.config, options);
