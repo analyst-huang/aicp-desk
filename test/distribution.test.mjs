@@ -37,11 +37,12 @@ test("README documents Windows, macOS, Linux, GUI, and CLI workflows", async () 
   }
 });
 
-test("distribution includes an agent-ready Debian remote UI dependency installer", async () => {
-  const [windowsInstall, unixInstall, dependencyInstaller, cli] = await Promise.all([
+test("distribution includes agent-ready private and explicit system remote UI installers", async () => {
+  const [windowsInstall, unixInstall, dependencyInstaller, systemInstaller, cli] = await Promise.all([
     read("install.ps1"),
     read("install.sh"),
     read("scripts/install-remote-ui-debian.sh"),
+    read("scripts/install-remote-ui-system-debian.sh"),
     read("bin/aicp.mjs"),
   ]);
   assert.match(windowsInstall, /'scripts'/);
@@ -50,7 +51,7 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   for (const component of ["xvfb", "x11vnc", "novnc", "websockify", "openbox"]) {
     assert.match(dependencyInstaller, new RegExp(component));
   }
-  assert.match(dependencyInstaller, /environment first, private fallback/);
+  assert.match(dependencyInstaller, /Remote UI component plan \(strategy:/);
   assert.match(dependencyInstaller, /private \(cached\)/);
   assert.match(dependencyInstaller, /MISSING_SEED_PACKAGES/);
   assert.match(dependencyInstaller, /AICP hybrid remote UI runtime installed/);
@@ -70,6 +71,11 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   assert.match(dependencyInstaller, /Restored the previous AICP runtime/);
   assert.match(dependencyInstaller, /mv "\$RUNTIME" "\$STAGING"/);
   assert.doesNotMatch(dependencyInstaller, /cp -a "\$RUNTIME\/\."/);
+  assert.match(dependencyInstaller, /patch_private_xvfb_xkbcomp/);
+  assert.match(dependencyInstaller, /\.\/xkbbin/);
+  assert.match(dependencyInstaller, /x11-xkb-utils/);
+  assert.match(dependencyInstaller, /AICP_RUNTIME_INSTALL_MODE/);
+  assert.match(dependencyInstaller, /auto\|private\|system/);
   assert.match(dependencyInstaller, /CONTAINER_DETECTED/);
   assert.match(dependencyInstaller, /RUNTIME_MODE=root-container/);
   assert.match(dependencyInstaller, /AICP_ALLOW_ROOT/);
@@ -77,9 +83,14 @@ test("distribution includes an agent-ready Debian remote UI dependency installer
   assert.match(dependencyInstaller, /for \(field_number=/);
   assert.doesNotMatch(dependencyInstaller, /sudo apt-get|apt-get install|dpkg -i/);
   assert.match(dependencyInstaller, /No files were written to \/usr, \/opt, or \/etc/);
+  assert.match(systemInstaller, /apt-get install -y --no-install-recommends/);
+  assert.match(systemInstaller, /microsoft-edge-stable\.deb/);
+  assert.match(systemInstaller, /AICP_RUNTIME_INSTALL_MODE=system/);
+  assert.match(systemInstaller, /must be run as root/);
   assert.match(cli, /aicp remote-ui doctor/);
   assert.match(cli, /aicp remote-ui install/);
   assert.match(cli, /installRemoteUiRuntime/);
+  assert.match(cli, /--runtime-mode auto\|private\|system/);
   assert.match(cli, /VS Code 转发端口/);
 });
 

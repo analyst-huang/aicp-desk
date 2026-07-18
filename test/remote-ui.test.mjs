@@ -36,6 +36,18 @@ test("remote UI binds both VNC layers to server loopback only", () => {
   assert.deepEqual(websockify.args, ["--web", "/usr/share/novnc", "127.0.0.1:16080", "127.0.0.1:15900"]);
 });
 
+test("remote UI managed process specs can receive private diagnostic logs", () => {
+  const options = normalizeRemoteUiOptions();
+  const specs = remoteUiProcessSpecs(options, {
+    xvfb: "/mock/Xvfb",
+    x11vnc: "/mock/x11vnc",
+    websockify: "/mock/websockify",
+    windowManager: "/mock/openbox",
+    noVnc: { root: "/mock/novnc", entrypoint: "vnc.html" },
+  });
+  assert.deepEqual(specs.map((spec) => spec.name), ["xvfb", "windowManager", "x11vnc", "websockify"]);
+});
+
 test("doctor reports a complete Linux dependency set for an ordinary user", async () => {
   const report = await remoteUiDoctor({}, {}, {
     platform: "linux",
@@ -67,10 +79,27 @@ test("doctor reports whether each hybrid runtime component came from the environ
     findNoVnc: async () => ({ root: "/usr/share/novnc", entrypoint: "vnc.html" }),
     findEdge: async () => "/usr/bin/microsoft-edge",
   });
-  assert.equal(report.privateRuntime.strategy, "environment-first");
+  assert.equal(report.privateRuntime.strategy, "auto");
   assert.equal(report.privateRuntime.sources.edge, "/usr/bin/microsoft-edge");
   assert.equal(report.privateRuntime.sources.xvfb, "private:runtime/bin/Xvfb");
   assert.equal(report.privateRuntime.sources.websockify, "private:runtime/bin/websockify");
+});
+
+test("doctor exposes the selected runtime installation strategy and XKB compiler", async () => {
+  const report = await remoteUiDoctor({}, {}, {
+    platform: "linux",
+    getuid: () => 1000,
+    runtimeManifest: {
+      scope: "aicp-private-runtime",
+      install_strategy: "private",
+      xkbcomp_source: "private:runtime/xkbbin/xkbcomp",
+    },
+    resolveExecutable: async (candidate) => `/mock/${candidate}`,
+    findNoVnc: async () => ({ root: "/mock/novnc", entrypoint: "vnc.html" }),
+    findEdge: async () => "/mock/microsoft-edge",
+  });
+  assert.equal(report.privateRuntime.strategy, "private");
+  assert.equal(report.privateRuntime.sources.xkbCompiler, "private:runtime/xkbbin/xkbcomp");
 });
 
 test("doctor refuses root and explains missing dependencies", async () => {

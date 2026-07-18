@@ -7,6 +7,11 @@ if [ "$(uname -s)" != "Linux" ]; then
 fi
 
 USER_ID=$(id -u)
+INSTALL_STRATEGY=${AICP_RUNTIME_INSTALL_MODE:-auto}
+case "$INSTALL_STRATEGY" in
+  auto|private|system) : ;;
+  *) printf 'AICP_RUNTIME_INSTALL_MODE must be auto, private, or system: %s\n' "$INSTALL_STRATEGY" >&2; exit 1 ;;
+esac
 CONTAINER_DETECTED=0
 ROOT_MODEL=0
 RUNTIME_MODE=user-sandbox
@@ -104,19 +109,26 @@ first_external_command() {
   return 1
 }
 
-EDGE_COMMAND=$(first_external_command microsoft-edge microsoft-edge-stable msedge || true)
-if [ -z "$EDGE_COMMAND" ] && [ -x /opt/microsoft/msedge/msedge ]; then EDGE_COMMAND=/opt/microsoft/msedge/msedge; fi
-if [ -n "$EDGE_COMMAND" ] && ! "$EDGE_COMMAND" --version >/dev/null 2>&1; then EDGE_COMMAND=""; fi
-XVFB_COMMAND=$(first_external_command Xvfb || true)
-X11VNC_COMMAND=$(first_external_command x11vnc || true)
-WINDOW_MANAGER_COMMAND=$(first_external_command openbox openbox-session fluxbox || true)
-WEBSOCKIFY_COMMAND=$(first_external_command websockify || true)
+EDGE_COMMAND=""
+XVFB_COMMAND=""
+X11VNC_COMMAND=""
+WINDOW_MANAGER_COMMAND=""
+WEBSOCKIFY_COMMAND=""
 NOVNC_ROOT=""
-for web_root_candidate in "${NOVNC_WEB:-}" /usr/share/novnc /usr/share/noVNC /opt/novnc /opt/noVNC; do
-  [ -n "$web_root_candidate" ] || continue
-  case "$web_root_candidate" in "$RUNTIME"/*) continue ;; esac
-  if [ -e "$web_root_candidate/vnc.html" ] || [ -e "$web_root_candidate/vnc_lite.html" ]; then NOVNC_ROOT=$web_root_candidate; break; fi
-done
+if [ "$INSTALL_STRATEGY" != "private" ]; then
+  EDGE_COMMAND=$(first_external_command microsoft-edge microsoft-edge-stable msedge || true)
+  if [ -z "$EDGE_COMMAND" ] && [ -x /opt/microsoft/msedge/msedge ]; then EDGE_COMMAND=/opt/microsoft/msedge/msedge; fi
+  if [ -n "$EDGE_COMMAND" ] && ! "$EDGE_COMMAND" --version >/dev/null 2>&1; then EDGE_COMMAND=""; fi
+  XVFB_COMMAND=$(first_external_command Xvfb || true)
+  X11VNC_COMMAND=$(first_external_command x11vnc || true)
+  WINDOW_MANAGER_COMMAND=$(first_external_command openbox openbox-session fluxbox || true)
+  WEBSOCKIFY_COMMAND=$(first_external_command websockify || true)
+  for web_root_candidate in "${NOVNC_WEB:-}" /usr/share/novnc /usr/share/noVNC /opt/novnc /opt/noVNC; do
+    [ -n "$web_root_candidate" ] || continue
+    case "$web_root_candidate" in "$RUNTIME"/*) continue ;; esac
+    if [ -e "$web_root_candidate/vnc.html" ] || [ -e "$web_root_candidate/vnc_lite.html" ]; then NOVNC_ROOT=$web_root_candidate; break; fi
+  done
+fi
 
 PRIVATE_EDGE=0
 PRIVATE_XVFB=0
@@ -124,12 +136,18 @@ PRIVATE_X11VNC=0
 PRIVATE_WINDOW_MANAGER=0
 PRIVATE_WEBSOCKIFY=0
 PRIVATE_NOVNC=0
+PRIVATE_XKBCOMP=0
 [ -x "$STAGING/bin/microsoft-edge-stable" ] && [ -x "$STAGING/rootfs/opt/microsoft/msedge/msedge" ] && PRIVATE_EDGE=1
-[ -x "$STAGING/bin/Xvfb" ] && { [ -e "$STAGING/rootfs/usr/share/X11/xkb" ] || [ -e /usr/share/X11/xkb ]; } && PRIVATE_XVFB=1
+if [ -x "$STAGING/bin/Xvfb" ]; then
+  if [ "$INSTALL_STRATEGY" = "private" ] && [ -e "$STAGING/rootfs/usr/share/X11/xkb" ]; then PRIVATE_XVFB=1
+  elif [ "$INSTALL_STRATEGY" != "private" ] && { [ -e "$STAGING/rootfs/usr/share/X11/xkb" ] || [ -e /usr/share/X11/xkb ]; }; then PRIVATE_XVFB=1
+  fi
+fi
 [ -x "$STAGING/bin/x11vnc" ] && PRIVATE_X11VNC=1
 [ -x "$STAGING/bin/openbox" ] && PRIVATE_WINDOW_MANAGER=1
 [ -x "$STAGING/bin/websockify" ] && PRIVATE_WEBSOCKIFY=1
 [ -e "$STAGING/rootfs/usr/share/novnc/vnc.html" ] && PRIVATE_NOVNC=1
+[ -x "$STAGING/rootfs/usr/bin/xkbcomp" ] && PRIVATE_XKBCOMP=1
 
 MISSING_SEED_PACKAGES=""
 [ -n "$XVFB_COMMAND" ] || [ "$PRIVATE_XVFB" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES xvfb"
@@ -137,9 +155,31 @@ MISSING_SEED_PACKAGES=""
 [ -n "$WINDOW_MANAGER_COMMAND" ] || [ "$PRIVATE_WINDOW_MANAGER" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES openbox"
 [ -n "$WEBSOCKIFY_COMMAND" ] || [ "$PRIVATE_WEBSOCKIFY" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES websockify"
 [ -n "$NOVNC_ROOT" ] || [ "$PRIVATE_NOVNC" -eq 1 ] || MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES novnc"
+if [ -z "$XVFB_COMMAND" ] && [ "$PRIVATE_XKBCOMP" -eq 0 ]; then
+  MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES x11-xkb-utils"
+fi
+if [ "$INSTALL_STRATEGY" = "private" ] && [ ! -e "$STAGING/rootfs/usr/share/X11/xkb" ]; then
+  MISSING_SEED_PACKAGES="$MISSING_SEED_PACKAGES xkb-data"
+fi
 
 NEED_EDGE_DOWNLOAD=0
 [ -n "$EDGE_COMMAND" ] || [ "$PRIVATE_EDGE" -eq 1 ] || NEED_EDGE_DOWNLOAD=1
+
+if [ "$INSTALL_STRATEGY" = "system" ]; then
+  MISSING_SYSTEM_COMPONENTS=""
+  [ -n "$EDGE_COMMAND" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS Edge"
+  [ -n "$XVFB_COMMAND" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS Xvfb"
+  [ -n "$X11VNC_COMMAND" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS x11vnc"
+  [ -n "$WINDOW_MANAGER_COMMAND" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS window-manager"
+  [ -n "$WEBSOCKIFY_COMMAND" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS websockify"
+  [ -n "$NOVNC_ROOT" ] || MISSING_SYSTEM_COMPONENTS="$MISSING_SYSTEM_COMPONENTS noVNC"
+  if [ -n "$MISSING_SYSTEM_COMPONENTS" ]; then
+    printf 'System installer did not provide required components:%s\n' "$MISSING_SYSTEM_COMPONENTS" >&2
+    exit 1
+  fi
+  MISSING_SEED_PACKAGES=""
+  NEED_EDGE_DOWNLOAD=0
+fi
 
 component_plan() {
   environment_path=$1
@@ -150,7 +190,7 @@ component_plan() {
   fi
 }
 
-printf 'Remote UI component plan (environment first, private fallback):\n'
+printf 'Remote UI component plan (strategy: %s):\n' "$INSTALL_STRATEGY"
 printf '  Edge:         '; component_plan "$EDGE_COMMAND" "$PRIVATE_EDGE"; printf '\n'
 printf '  Xvfb:         '; component_plan "$XVFB_COMMAND" "$PRIVATE_XVFB"; printf '\n'
 printf '  x11vnc:       '; component_plan "$X11VNC_COMMAND" "$PRIVATE_X11VNC"; printf '\n'
@@ -330,10 +370,11 @@ require_private_file() {
 [ -n "$EDGE_COMMAND" ] || require_private_file opt/microsoft/msedge/msedge
 if [ -z "$XVFB_COMMAND" ]; then
   require_private_file usr/bin/Xvfb
-  if [ ! -e "$STAGING/rootfs/usr/share/X11/xkb" ] && [ ! -e /usr/share/X11/xkb ]; then
+  if [ ! -e "$STAGING/rootfs/usr/share/X11/xkb" ] && { [ "$INSTALL_STRATEGY" = "private" ] || [ ! -e /usr/share/X11/xkb ]; }; then
     printf 'Private Xvfb needs XKB data, but neither the private runtime nor /usr/share/X11/xkb provides it.\n' >&2
     exit 1
   fi
+  require_private_file usr/bin/xkbcomp
 fi
 [ -n "$X11VNC_COMMAND" ] || require_private_file usr/bin/x11vnc
 [ -n "$WINDOW_MANAGER_COMMAND" ] || require_private_file usr/bin/openbox
@@ -360,6 +401,40 @@ write_native_wrapper() {
 
 if [ -z "$X11VNC_COMMAND" ]; then write_native_wrapper x11vnc usr/bin/x11vnc; fi
 if [ -z "$WINDOW_MANAGER_COMMAND" ]; then write_native_wrapper openbox usr/bin/openbox; fi
+
+patch_private_xvfb_xkbcomp() {
+  xvfb_binary=$1
+  node --input-type=module -e '
+    import { readFileSync, writeFileSync } from "node:fs";
+    const target = process.argv[1];
+    const data = readFileSync(target);
+    const original = Buffer.from("/usr/bin");
+    const replacement = Buffer.from("./xkbbin");
+    const occurrences = (needle) => {
+      let count = 0;
+      let offset = 0;
+      while ((offset = data.indexOf(needle, offset)) !== -1) {
+        count += 1;
+        offset += needle.length;
+      }
+      return count;
+    };
+    const originalCount = occurrences(original);
+    const replacementCount = occurrences(replacement);
+    if (originalCount === 1) {
+      replacement.copy(data, data.indexOf(original));
+      writeFileSync(target, data);
+    } else if (!(originalCount === 0 && replacementCount === 1)) {
+      throw new Error(`Unexpected Xvfb XKB compiler path count: original=${originalCount}, patched=${replacementCount}`);
+    }
+  ' "$xvfb_binary"
+}
+
+if [ -z "$XVFB_COMMAND" ]; then
+  patch_private_xvfb_xkbcomp "$STAGING/rootfs/usr/bin/Xvfb"
+  mkdir -p "$STAGING/xkbbin"
+  ln -sf ../rootfs/usr/bin/xkbcomp "$STAGING/xkbbin/xkbcomp"
+fi
 
 if [ -z "$EDGE_COMMAND" ]; then printf '%s\n' \
   '#!/usr/bin/env sh' \
@@ -388,6 +463,7 @@ if [ -z "$XVFB_COMMAND" ]; then printf '%s\n' \
   'export PATH="$ROOTFS/usr/bin:$PATH"' \
   'XKB_DIR="$ROOTFS/usr/share/X11/xkb"' \
   'if [ ! -e "$XKB_DIR" ]; then XKB_DIR=/usr/share/X11/xkb; fi' \
+  'cd "$RUNTIME"' \
   'exec "$ROOTFS/usr/bin/Xvfb" "$@" -xkbdir "$XKB_DIR"' \
   > "$STAGING/bin/Xvfb"
 chmod 0755 "$STAGING/bin/Xvfb"
@@ -421,10 +497,15 @@ X11VNC_SOURCE=${X11VNC_COMMAND:-private:runtime/bin/x11vnc}
 WINDOW_MANAGER_SOURCE=${WINDOW_MANAGER_COMMAND:-private:runtime/bin/openbox}
 WEBSOCKIFY_SOURCE=${WEBSOCKIFY_COMMAND:-private:runtime/bin/websockify}
 NOVNC_SOURCE=${NOVNC_ROOT:-private:runtime/rootfs/usr/share/novnc}
+if [ -z "$XVFB_COMMAND" ] && [ -x "$STAGING/xkbbin/xkbcomp" ]; then XKBCOMP_SOURCE=private:runtime/xkbbin/xkbcomp
+elif [ -x /usr/bin/xkbcomp ]; then XKBCOMP_SOURCE=/usr/bin/xkbcomp
+else XKBCOMP_SOURCE=unavailable
+fi
 
 printf '%s\n' \
   'version=2' \
-  'scope=aicp-hybrid-runtime' \
+  "scope=aicp-$INSTALL_STRATEGY-runtime" \
+  "install_strategy=$INSTALL_STRATEGY" \
   "mode=$RUNTIME_MODE" \
   "installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   "edge_package=$EDGE_FILENAME" \
@@ -434,6 +515,7 @@ printf '%s\n' \
   "window_manager_source=$WINDOW_MANAGER_SOURCE" \
   "websockify_source=$WEBSOCKIFY_SOURCE" \
   "novnc_source=$NOVNC_SOURCE" \
+  "xkbcomp_source=$XKBCOMP_SOURCE" \
   > "$STAGING/manifest.txt"
 
 EDGE_SMOKE_COMMAND=$EDGE_COMMAND
@@ -451,6 +533,11 @@ if ! XDG_CONFIG_HOME="$EDGE_SMOKE_CONFIG" timeout --signal=TERM --kill-after=5s 
   tail -n 30 "$EDGE_SMOKE_LOG" >&2 || true
   printf 'On a trusted dedicated server only, retry with: AICP_ALLOW_NO_SANDBOX=1 %s\n' "$0" >&2
   exit 1
+fi
+
+if [ "$INSTALL_STRATEGY" = "system" ]; then
+  rm -rf "$STAGING/bin" "$STAGING/rootfs" "$STAGING/xkbbin" "$STAGING/xdg-config"
+  mkdir -p "$STAGING/bin"
 fi
 
 BACKUP="$ROOT/.runtime.$$.old"

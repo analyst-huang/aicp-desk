@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const source = await readFile(new URL("../lib/browser.mjs", import.meta.url), "utf8");
+const remoteUiSource = await readFile(new URL("../lib/remote-ui.mjs", import.meta.url), "utf8");
 
 test("normal logout clears cookies without deleting the Edge profile", () => {
   const clearSession = source.slice(source.indexOf("async clearSession()"), source.indexOf("async forgetLogin()"));
@@ -58,4 +59,10 @@ test("a visible passport tab wins over a stale restored console tab", () => {
   const waitForTarget = source.slice(source.indexOf("async waitForAicpTarget"), source.indexOf("browserArgs("));
   assert.ok(waitForTarget.indexOf("const passport =") < waitForTarget.indexOf("const target ="));
   assert.ok(waitForTarget.indexOf("if (passport)") < waitForTarget.indexOf("if (target)"));
+});
+
+test("remote UI startup retains per-process logs and includes stderr on failure", () => {
+  assert.match(remoteUiSource, /remote-ui-\$\{spec\.name\}\.log/);
+  assert.match(remoteUiSource, /slice\(-20\)/);
+  assert.match(remoteUiSource, /details \? `\\n\$\{details\}`/);
 });

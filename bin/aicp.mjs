@@ -19,8 +19,9 @@ AICP 本地控制工具
   aicp login --remote-ui [--web-port 6080] [--vnc-port 5900]
              [--display :99] [--web-root PATH] [--yes]
                                         在 Linux 无显示器服务器启动可转发登录界面
-  aicp remote-ui install [--allow-no-sandbox] [--allow-root] [--yes]
-                                        复用环境组件，私有补齐缺失的 Edge/Xvfb/noVNC
+  aicp remote-ui install [--runtime-mode auto|private|system]
+                         [--allow-no-sandbox] [--allow-root] [--yes]
+                                        自动复用、全私有或系统级安装远端 UI 组件
   aicp remote-ui doctor                检查远端登录所需的 Edge/Xvfb/noVNC
   aicp remote-ui status [--json]        查看远端界面状态及待转发端口
   aicp remote-ui stop [--yes]           关闭远端 Edge 和远端界面
@@ -469,17 +470,25 @@ async function main() {
     if (remoteAction === "install") {
       const allowNoSandbox = Boolean(options["allow-no-sandbox"]);
       const allowRoot = Boolean(options["allow-root"]);
+      const runtimeMode = String(options["runtime-mode"] ?? "auto");
+      if (!["auto", "private", "system"].includes(runtimeMode)) {
+        throw new Error("--runtime-mode 必须是 auto、private 或 system");
+      }
       const runningAsRoot = process.getuid?.() === 0;
       const approved = await confirmAction(
-        runningAsRoot
+        runtimeMode === "system"
+          ? "system 模式将通过 apt 安装 Edge/Xvfb/noVNC 等组件并修改当前系统或容器镜像。继续？"
+          : runningAsRoot
           ? "检测到 root：容器内将自动使用 root-container/no-sandbox 模式；裸机需要 --allow-root。继续？"
+          : runtimeMode === "private"
+          ? "将把所有远端 UI 受管组件安装到 AICP 私有目录，不修改系统包。继续？"
           : allowNoSandbox
           ? "将优先复用环境组件、仅在 AICP 私有目录补齐缺失项，并明确禁用 Edge 沙箱；只应在可信专用服务器使用。继续？"
           : "将优先复用环境中的 Edge/Xvfb/noVNC，仅把缺失项下载到 AICP 私有目录；不修改系统包。继续？",
         { yes: Boolean(options.yes) },
       );
       if (!approved) return print("已取消");
-      return print(await installRemoteUiRuntime({ allowNoSandbox, allowRoot }), true);
+      return print(await installRemoteUiRuntime({ allowNoSandbox, allowRoot, runtimeMode }), true);
     }
     if (remoteAction === "doctor") {
       const report = await remoteUiDoctor(context.config, options);

@@ -29,7 +29,7 @@ AICP Desk 是一个运行在本机的金山云星流（AICP）控制工具，同
 | Windows（仍受 Node.js 22 与 Edge 支持的版本） | 支持 | `install.ps1` |
 | macOS（Intel / Apple Silicon） | 支持 | `install.sh` |
 | Linux（发行版需能运行 Microsoft Edge） | 支持 | `install.sh` |
-| Linux 无桌面环境 | 支持环境优先、私有补齐的远端登录；不安装系统包 | `install.sh` |
+| Linux 无桌面环境 | 支持自动复用、全私有及显式系统安装三种远端登录模式 | `install.sh` |
 
 所有平台均需要：
 
@@ -219,6 +219,23 @@ aicp remote-ui install --yes
 ${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app/scripts/install-remote-ui-debian.sh
 ```
 
+`--runtime-mode` 可以明确选择依赖落点：
+
+| 模式 | 行为 | 是否修改系统 |
+| --- | --- | --- |
+| `auto`（默认） | 优先复用环境组件，缺失项放入 AICP `runtime/` | 否 |
+| `private` | Edge、Xvfb、noVNC 等受管组件全部放入 AICP `runtime/` | 否 |
+| `system` | 通过 `apt-get` 把组件安装进当前 Debian/Ubuntu 环境，再做完整验证 | 是；仅 root 可用 |
+
+```bash
+aicp remote-ui install --runtime-mode private --yes
+
+# 适合希望把依赖固化进当前容器镜像的 root；会修改系统包数据库
+aicp remote-ui install --runtime-mode system --yes
+```
+
+`system` 不会静默启用，必须显式指定；裸机或共享服务器请先确认系统变更权限。容器中选择它时，改动只属于该容器/镜像的隔离边界，但 Edge 仍因 root 身份使用 `--no-sandbox`。
+
 私有补齐目录和安装清单默认位于：
 
 ```text
@@ -255,7 +272,7 @@ aicp remote-ui install --allow-no-sandbox --yes
 aicp remote-ui doctor
 ```
 
-输出中的 `ready` 必须为 `true`；`dependencies` 显示当前真正会执行的组件路径，`privateRuntime.strategy` 应为 `environment-first`，`privateRuntime.sources` 逐项显示安装时选择了环境还是私有补齐。`privateRuntime.mode` 显示 `user-sandbox`、`user-no-sandbox` 或 `root-container`，`containerDetected` 和 `rootModel` 记录判断结果。root 模式会在 `warnings` 中持续提示。如果 `ready` 为 `false`，命令会返回非零退出码，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
+输出中的 `ready` 必须为 `true`；`dependencies` 显示当前真正会执行的组件路径，`privateRuntime.strategy` 显示 `auto`、`private` 或 `system`，`privateRuntime.sources` 逐项显示安装时选择了环境还是私有补齐，并包含 XKB 编译器来源。`privateRuntime.mode` 显示 `user-sandbox`、`user-no-sandbox` 或 `root-container`，`containerDetected` 和 `rootModel` 记录判断结果。root 模式会在 `warnings` 中持续提示。如果 `ready` 为 `false`，命令会返回非零退出码，便于 Agent 自动中止后续步骤。非标准 noVNC 安装可以显式指定：
 
 ```bash
 aicp login --remote-ui --web-root "$HOME/private-noVNC" --yes
@@ -358,12 +375,14 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | 现象 | 处理方式 |
 | --- | --- |
 | `ready: false` 或提示缺少 Xvfb/noVNC | 运行 `aicp remote-ui install --yes`，再执行 `doctor`；不需要 `sudo apt install`。 |
+| 不希望维护私有依赖 | 在确认允许修改当前 Debian/Ubuntu 环境后，以 root 运行 `aicp remote-ui install --runtime-mode system --yes`。 |
 | 容器 root 被当成裸机 root | 容器检测可能被运行时隐藏；确认隔离边界后执行 `aicp remote-ui install --allow-root --yes`。 |
 | 提示找不到 noVNC 网页 | 重新运行混合安装脚本；它会先查 `/usr/share/novnc` 等环境目录，再补到 `runtime/rootfs/usr/share/novnc`。自定义安装可用 `--web-root` 指定。 |
 | 安装仍然准备下载很多包 | 查看安装开头的 component plan，并运行 `aicp remote-ui doctor` 查看实际路径；环境组件必须能通过 `PATH` 或文档中的常见目录找到。已有私有副本会显示为 `private (cached)`。 |
 | Edge 下载长时间没有反馈 | v0.13.2 起 Edge 主包会显示进度并自动重试；请确认能访问 `packages.microsoft.com`。启动验证最多等待 30 秒，失败或超时会打印最后 30 行 Edge 输出。 |
 | Edge 报 `crashpad`、`--database is required` 或 `$HOME/.config` 不可写 | AICP 会使用自己的 `edge-config/`，不再依赖用户的 `$HOME/.config`。重新安装或升级到 v0.13.2。 |
 | 提示私有 Xvfb 缺少 XKB 数据 | v0.13.3 起会复用主机的 `/usr/share/X11/xkb`，仅在主机也缺失时才要求私有 `xkb-data`。 |
+| `xvfb 启动失败` 且提示 `/usr/bin/xkbcomp: not found` | v0.13.6 起会把私有 Xvfb 的编译期路径重定向到 `runtime/xkbbin/xkbcomp`，无需写入系统 `/usr/bin`。远端 UI 各进程的末尾错误也会直接显示，并保存在 `AICP_HOME/remote-ui-*.log`。 |
 | `6080` 或 `5900` 已占用 | 用 `--web-port`、`--vnc-port` 改成其他未占用的高位端口。 |
 | 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --yes`，确认 `doctor` 通过后重新启动。 |
 | VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
@@ -645,6 +664,7 @@ AICP_HOME=/secure/path/aicp aicp session
 - `edge-config/`：AICP 专用且可写的 Edge/Crashpad 配置；`logout --forget` 时删除。
 - `remote-ui.json`：正在运行的远端画面进程与端口；执行 `aicp remote-ui stop` 后删除。
 - `remote-ui-profile.json`：标记无显示器服务器使用的密码存储模式；`logout --forget` 时删除。
+- `remote-ui-*.log`：Xvfb、窗口管理器、x11vnc 和 websockify 的最近一次启动日志。
 
 Linux 程序文件与远端 UI 的私有补齐目录不在上述状态目录中，分别位于 `${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/app` 和 `${XDG_DATA_HOME:-$HOME/.local/share}/aicp-cli/runtime`。`uninstall.sh --keep-data` 会删除二者，但保留这里的配置、模板和登录资料。
 
