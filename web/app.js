@@ -106,12 +106,14 @@ function metric(label, value, note = "") {
 function renderSession() {
   const badge = $("#session-badge");
   const detail = $("#session-detail");
-  if (state.session.profileExists) {
+  if (state.session.authenticated) {
     badge.classList.add("ready");
-    badge.innerHTML = "<i></i>已有独立 Edge 登录资料";
-    detail.textContent = state.session.browserRunning
-      ? `独立 Edge 当前打开，调试端口 ${state.session.debugPort}。`
-      : "独立 Edge 资料已保留；其中的已保存密码由 Edge 管理，并受当前操作系统账户保护。";
+    badge.innerHTML = `<i></i>已认证 · ${escapeHtml(state.session.username)}`;
+    detail.textContent = `当前用户 ID：${state.session.userId}。${state.session.browserRunning ? `独立 Edge 当前打开，调试端口 ${state.session.debugPort}。` : "登录 Cookie 已通过平台接口验证。"}`;
+  } else if (state.session.profileExists) {
+    badge.classList.remove("ready");
+    badge.innerHTML = "<i></i>登录资料存在，但未认证";
+    detail.textContent = state.session.authenticationError || "登录 Cookie 已失效，请重新登录。";
   } else {
     badge.classList.remove("ready");
     badge.innerHTML = "<i></i>尚未登录";
@@ -163,7 +165,7 @@ async function loadDev({ background = false } = {}) {
   if (state.devLoading) return;
   state.devLoading = true;
   const table = $("#dev-table");
-  if (!state.session.profileExists) {
+  if (!state.session.authenticated) {
     state.dev = [];
     $("#dev-count").textContent = "登录后加载";
     $("#dev-metrics").innerHTML = metric("开发机总数", "—") + metric("运行 / 启动中", "—") + metric("GPU 配额视图", "—") + metric("配置 CPU 合计", "—");
@@ -217,7 +219,7 @@ async function loadTrain({ background = false } = {}) {
   if (state.trainLoading) return;
   state.trainLoading = true;
   const table = $("#train-table");
-  if (!state.session.profileExists) {
+  if (!state.session.authenticated) {
     state.train = [];
     $("#train-count").textContent = "登录后加载";
     $("#train-metrics").innerHTML = metric("当前结果", "—") + metric("活动任务", "—") + metric("成功", "—") + metric("失败", "—");
@@ -289,9 +291,9 @@ function orderedGpuNodes(nodes = []) {
 
 function renderGpuFilterSummary(pools = []) {
   const total = pools.reduce((sum, pool) => sum + pool.nodes.length, 0);
-  const visible = pools.reduce((sum, pool) => sum + orderedGpuNodes(pool.nodes).length, 0);
+  const matched = pools.reduce((sum, pool) => sum + orderedGpuNodes(pool.nodes).length, 0);
   const direction = $("#gpu-node-sort")?.value === "asc" ? "从少到多" : "从多到少";
-  $("#gpu-node-filter-summary").textContent = `显示 ${visible} / ${total} 台 · 剩余卡数${direction}`;
+  $("#gpu-node-filter-summary").textContent = `匹配 ${matched} / 总计 ${total} 台 · 剩余卡数${direction}`;
 }
 
 function rerenderGpuCapacity() {
@@ -310,7 +312,7 @@ function renderGpuPools(pools) {
         : '<span class="capacity-model cpu">CPU 队列</span>';
       const quota = queue.quotaGpu === null ? "—" : queue.quotaGpu;
       const allocated = queue.allocatedGpu === null ? "—" : queue.allocatedGpu;
-      const remaining = queue.remainingGpu === null ? "—" : queue.remainingGpu;
+      const remaining = queue.quotaRemainingGpu === null ? "—" : queue.quotaRemainingGpu;
       const borrowed = Number(queue.borrowedGpu || 0) > 0 ? `<small class="borrowed">已借用 ${escapeHtml(queue.borrowedGpu)} 卡</small>` : "";
       return `<tr>
         <td class="name-cell"><strong>${escapeHtml(queue.name || "-")}</strong><small>${escapeHtml(workloadLabel(queue.workloadTypes))}</small></td>
@@ -342,7 +344,7 @@ function renderGpuPools(pools) {
     return `<article class="panel capacity-pool">
       <header class="capacity-pool-head">
         <div><p class="eyebrow">Resource pool · ${escapeHtml(pool.type || "-")}</p><h3>${escapeHtml(pool.name || pool.id)}</h3><small>${escapeHtml(pool.id)}</small></div>
-        <div class="capacity-pool-total"><span>物理 GPU 剩余</span><strong>${escapeHtml(pool.freeGpu)}<small> / ${escapeHtml(pool.totalGpu)} 卡</small></strong><progress max="${escapeHtml(max)}" value="${escapeHtml(pool.freeGpu)}"></progress><p>已分配 ${escapeHtml(pool.assignedGpu)} · 不可用 ${escapeHtml(pool.unavailableGpu)}</p></div>
+        <div class="capacity-pool-total"><span>物理 GPU 剩余</span><strong>${escapeHtml(pool.physicalFreeGpu)}<small> / ${escapeHtml(pool.totalGpu)} 卡</small></strong><progress max="${escapeHtml(max)}" value="${escapeHtml(pool.physicalFreeGpu)}"></progress><p>已分配 ${escapeHtml(pool.assignedGpu)} · 不可用 ${escapeHtml(pool.unavailableGpu)}</p></div>
       </header>
       <div class="capacity-section-head"><div><h4>节点实时容量</h4><p>优先按剩余 GPU 卡数排序；适合 Agent 在启动实验前选机。</p></div><span>${escapeHtml(visibleNodes.length)} / ${escapeHtml(pool.nodes.length)} 台</span></div>
       <div class="capacity-node-table capacity-node-grid">${nodeCards || '<div class="empty">没有符合筛选条件的节点</div>'}</div>
@@ -357,7 +359,7 @@ async function loadGpu({ background = false } = {}) {
   if (state.gpuLoading) return;
   state.gpuLoading = true;
   const container = $("#gpu-pools");
-  if (!state.session.profileExists) {
+  if (!state.session.authenticated) {
     state.gpuCapacity = null;
     $("#gpu-metrics").innerHTML = metric("资源组", "—") + metric("物理 GPU 剩余", "—") + metric("物理 GPU 总量", "—") + metric("节点", "—");
     container.innerHTML = '<div class="panel capacity-empty">请先点击右上角“登录 / 更新会话”</div>';
@@ -371,7 +373,7 @@ async function loadGpu({ background = false } = {}) {
   try {
     state.gpuCapacity = await api("/api/gpu");
     const summary = state.gpuCapacity.summary;
-    $("#gpu-metrics").innerHTML = metric("资源组", summary.poolCount, "个") + metric("物理 GPU 剩余", summary.freeGpu, "卡") + metric("物理 GPU 总量", summary.totalGpu, "卡") + metric("节点", summary.nodeCount, `台 · ${summary.gpuNodeCount} 台 GPU`);
+    $("#gpu-metrics").innerHTML = metric("资源组", summary.poolCount, "个") + metric("物理 GPU 剩余", summary.physicalFreeGpu, "卡") + metric("物理 GPU 总量", summary.totalGpu, "卡") + metric("节点", summary.nodeCount, `台 · ${summary.gpuNodeCount} 台 GPU`);
     container.innerHTML = renderGpuPools(state.gpuCapacity.pools);
     renderGpuFilterSummary(state.gpuCapacity.pools);
     markResourceRefresh();
@@ -384,7 +386,7 @@ async function loadGpu({ background = false } = {}) {
 }
 
 async function refreshActiveResourcePage({ background = false } = {}) {
-  if (document.hidden || !state.session.profileExists) return;
+  if (document.hidden || !state.session.authenticated) return;
   if (state.page === "dev") await loadDev({ background });
   if (state.page === "train") await loadTrain({ background });
   if (state.page === "gpu") await loadGpu({ background });

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { BrowserSession } from "../lib/browser.mjs";
 
 const source = await readFile(new URL("../lib/browser.mjs", import.meta.url), "utf8");
 const remoteUiSource = await readFile(new URL("../lib/remote-ui.mjs", import.meta.url), "utf8");
@@ -62,10 +63,30 @@ test("platform empty-token errors are reported as an expired login", () => {
   assert.match(source, /登录状态已过期/);
 });
 
-test("a visible passport tab wins over a stale restored console tab", () => {
+test("a stale passport tab requires a successful identity probe before using a restored console tab", () => {
   const waitForTarget = source.slice(source.indexOf("async waitForAicpTarget"), source.indexOf("browserArgs("));
   assert.ok(waitForTarget.indexOf("const passport =") < waitForTarget.indexOf("const target ="));
-  assert.ok(waitForTarget.indexOf("if (passport)") < waitForTarget.indexOf("if (target)"));
+  assert.match(waitForTarget, /passport && target/);
+  assert.match(waitForTarget, /fetchCurrentUser\(target\)/);
+});
+
+test("current-user probe exposes only authenticated identity fields", async () => {
+  const browser = new BrowserSession({ debugPort: 9337 });
+  browser.withBrowser = async (callback) => callback();
+  browser.waitForConsoleTarget = async () => ({ webSocketDebuggerUrl: "ws://example" });
+  browser.evaluate = async () => ({
+    status: 200,
+    ok: true,
+    authenticated: true,
+    accountType: "iam",
+    username: "alice",
+    userId: "user-id",
+  });
+  assert.deepEqual(await browser.currentUser(), {
+    accountType: "iam",
+    username: "alice",
+    userId: "user-id",
+  });
 });
 
 test("remote UI startup retains per-process logs and includes stderr on failure", () => {

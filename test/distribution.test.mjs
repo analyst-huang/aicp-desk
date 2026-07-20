@@ -107,6 +107,19 @@ test("CLI exposes GPU capacity in human and JSON modes", async () => {
   assert.match(cli, /内存剩余\/可分配/);
   assert.match(cli, /--only-free/);
   assert.match(cli, /--sort-gpu desc\|asc/);
+  assert.match(cli, /physicalFreeGpu/);
+  assert.match(cli, /quotaRemainingGpu/);
+  assert.match(cli, /matchedNodeCount/);
+});
+
+test("CLI exposes authenticated session identity and training pagination", async () => {
+  const [cli, readme] = await Promise.all([read("bin/aicp.mjs"), read("README.md")]);
+  assert.match(cli, /验证登录 Cookie/);
+  assert.match(cli, /--creator-id USER_ID/);
+  assert.match(cli, /--page PAGE/);
+  assert.match(cli, /--limit 5-1000/);
+  assert.match(readme, /authenticated/);
+  assert.match(readme, /TotalCount/);
 });
 
 test("CLI exposes one-shot and follow training logs", async () => {

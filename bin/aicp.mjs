@@ -28,7 +28,7 @@ AICP 本地控制工具
   aicp remote-ui stop --all [--yes]     连同 Edge/Xvfb 完全关闭（会话 Cookie 会失效）
   aicp logout [--yes]                  清除会话，保留 Edge 已保存的账号密码
   aicp logout --forget [--yes]         删除全部登录资料（包括已保存密码）
-  aicp session                         查看会话状态
+  aicp session                         验证登录 Cookie，并显示当前 IAM 用户
   aicp gui [--no-open] [--port 17863]  启动可视化控制台
 
 GPU 容量
@@ -44,7 +44,8 @@ GPU 容量
   aicp dev delete NAME_OR_ID [--yes]
 
 训练任务
-  aicp train list [--mine] [--status running,stopped] [--json]
+  aicp train list [--mine | --creator-id USER_ID]
+                  [--status running,stopped] [--page PAGE] [--limit 5-1000] [--json]
   aicp train create (--file FILE | --template NAME) [--name NAME]
                     [--command TEXT | --command-file FILE]
                     [--set PATH=VALUE ...] [--dry-run] [--yes]
@@ -138,7 +139,7 @@ async function handleGpu(context, args) {
   const poolRows = capacity.pools.map((pool) => ({
     name: pool.name,
     type: pool.type || "-",
-    free: pool.freeGpu,
+    physicalFree: pool.physicalFreeGpu,
     total: pool.totalGpu,
     assigned: pool.assignedGpu,
     unavailable: pool.unavailableGpu,
@@ -149,7 +150,7 @@ async function handleGpu(context, args) {
     models: queue.models.length ? queue.models.map((item) => `${item.model}:${item.quotaGpu}`).join(",") : "CPU",
     quota: queue.quotaGpu ?? "-",
     allocated: queue.allocatedGpu ?? "-",
-    remaining: queue.remainingGpu ?? "-",
+    quotaRemaining: queue.quotaRemainingGpu ?? "-",
     borrowing: queue.allowBorrowing ? "是" : "否",
   })));
   const nodeRows = capacity.pools.flatMap((pool) => pool.nodes.map((node) => ({
@@ -164,13 +165,13 @@ async function handleGpu(context, args) {
   })));
   const lines = [
     `区域: ${capacity.region}`,
-    `资源组物理 GPU: 剩余 ${capacity.summary.freeGpu} / 总计 ${capacity.summary.totalGpu}`,
+    `资源组物理 GPU: 剩余 ${capacity.summary.physicalFreeGpu} / 总计 ${capacity.summary.totalGpu}`,
     "",
     "资源组",
     formatTable(poolRows, [
       { key: "name", label: "名称" },
       { key: "type", label: "类型" },
-      { key: "free", label: "剩余GPU" },
+      { key: "physicalFree", label: "物理剩余GPU" },
       { key: "total", label: "总GPU" },
       { key: "assigned", label: "已分配" },
       { key: "unavailable", label: "不可用" },
@@ -183,11 +184,11 @@ async function handleGpu(context, args) {
       { key: "models", label: "型号:配额" },
       { key: "quota", label: "GPU配额" },
       { key: "allocated", label: "已分配" },
-      { key: "remaining", label: "配额剩余" },
+      { key: "quotaRemaining", label: "配额剩余" },
       { key: "borrowing", label: "允许借用" },
     ]),
     "",
-    `节点（显示 ${capacity.summary.visibleNodeCount} / ${capacity.summary.nodeCount} 台；剩余 = 可分配 - 已分配；内存单位为 GiB）`,
+    `节点（匹配 ${capacity.summary.matchedNodeCount} / 总计 ${capacity.summary.nodeCount} 台；剩余 = 可分配 - 已分配；内存单位为 GiB）`,
     formatTable(nodeRows, [
       { key: "pool", label: "资源组" },
       { key: "node", label: "机器" },
@@ -264,11 +265,14 @@ async function handleDev(context, action, args) {
 async function handleTrain(context, action, args) {
   const { positionals, options } = parseArgs(args);
   if (action === "list") {
+    if (options.mine && options["creator-id"]) throw new Error("--mine 不能与 --creator-id 同时使用");
     const response = await context.service.listTraining({
       mine: Boolean(options.mine),
+      creatorId: options["creator-id"],
       statuses: csv(options.status),
       frameworks: csv(options.framework),
       priorities: csv(options.priority),
+      page: options.page,
       limit: options.limit,
       region: options.region,
     });
@@ -285,7 +289,7 @@ async function handleTrain(context, action, args) {
         id: item.TrainJobId,
       };
     });
-    return print(formatTable(rows, [
+    const table = formatTable(rows, [
       { key: "name", label: "名称" },
       { key: "state", label: "状态" },
       { key: "framework", label: "框架" },
@@ -293,7 +297,11 @@ async function handleTrain(context, action, args) {
       { key: "queue", label: "队列" },
       { key: "submitted", label: "提交时间" },
       { key: "id", label: "ID" },
-    ]));
+    ]);
+    const page = response.Page ?? Number(options.page ?? 1);
+    const pageSize = response.PageSize ?? Number(options.limit ?? 50);
+    const total = response.TotalCount ?? rows.length;
+    return print(`第 ${page} 页 · 本页 ${rows.length} / 共 ${total} 条 · 每页 ${pageSize} 条\n\n${table}`);
   }
 
   if (action === "create") {

@@ -152,7 +152,7 @@ test("GUI exposes native resource-pool and queue GPU capacity", () => {
   assert.match(html, /id="gpu-node-sort"/);
   assert.match(html, /id="gpu-node-filter-summary"/);
   assert.match(script, /async function loadGpu/);
-  assert.match(script, /queue\.remainingGpu/);
+  assert.match(script, /queue\.quotaRemainingGpu/);
   assert.match(script, /node\.remainingMemoryGiB/);
   assert.match(script, /node\.allocatableGpu/);
   assert.match(script, /node\.schedulable && Number\(node\.remainingGpu\) > 0/);

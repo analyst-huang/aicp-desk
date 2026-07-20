@@ -11,6 +11,28 @@ function withLease(browser) {
   return browser;
 }
 
+test("training list forwards page, large limits, and creator IDs", async () => {
+  const calls = [];
+  const browser = {
+    graphql: async (operation, _query, variables) => {
+      calls.push({ operation, variables });
+      return { DescribeTrainJobs: { TotalCount: 399, Page: variables.Page, PageSize: variables.PageSize, TrainJobSet: [] } };
+    },
+  };
+  const api = new AicpApi(browser, { region: "region-1" });
+  const result = await api.listTrainJobs({ page: 2, limit: 399, creatorId: "iam-user-id" });
+  assert.equal(result.TotalCount, 399);
+  assert.deepEqual(calls[0].variables, {
+    Region: "region-1",
+    Page: 2,
+    PageSize: 399,
+    SkipUserPermissionCheck: false,
+    CreateUser: "iam-user-id",
+  });
+  await assert.rejects(() => api.listTrainJobs({ page: 0 }), /page/);
+  await assert.rejects(() => api.listTrainJobs({ limit: 1001 }), /limit/);
+});
+
 test("developer create options combine live platform selectors without mutations", async () => {
   let closed = 0;
   const calls = [];

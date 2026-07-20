@@ -151,6 +151,8 @@ aicp login
 aicp session
 ```
 
+`session` 会调用金山云的轻量用户接口实际验证 Cookie，并输出 `authenticated`、当前 IAM `username` 和 `userId`；浏览器进程或 profile 存在不再被当成已登录。
+
 清除 Cookie、保留 Edge 已保存的账号密码：
 
 ```bash
@@ -470,11 +472,10 @@ aicp --help
 ```bash
 aicp config show
 aicp config set region cn-northwest-3
-aicp config set username your-user-name
 aicp config set guiPort 17863
 ```
 
-常用配置键：`region`、`username`、`debugPort`、`guiPort`、`edgePath`、`apiEndpoint`、`consoleUrl`。
+常用配置键：`region`、`debugPort`、`guiPort`、`edgePath`、`apiEndpoint`、`consoleUrl`。`username` 仅作为旧版本配置兼容项保留；`dev/train list --mine` 会从已验证的登录态自动识别用户，无需手动设置。
 
 ### GPU 容量
 
@@ -493,7 +494,7 @@ aicp gpu --only-free
 aicp gpu --only-free --sort-gpu desc --json
 ```
 
-人类可读输出会分别列出资源组物理剩余、队列配额剩余和每台机器的实时余量，并标记机器是否可调度、队列是否允许借用。`--only-free` 只保留可调度且有剩余 GPU 的节点；`--sort-gpu desc|asc` 控制剩余卡数排序，默认 `desc`。Agent 建议使用 `aicp gpu --only-free --sort-gpu desc --json`；逐节点数据位于 `pools[].nodes[]`，关键字段包括 `gpuModel`、`remainingGpu`、`allocatableGpu`、`remainingMemoryGiB`、`allocatableMemoryGiB`、`remainingCpu` 和 `schedulable`。
+人类可读输出会分别列出资源组物理剩余、队列配额剩余和每台机器的实时余量，并标记机器是否可调度、队列是否允许借用。JSON 中使用 `physicalFreeGpu` 表示资源组物理余量、`quotaRemainingGpu` 表示队列配额余量，避免混淆；节点筛选后的数量使用 `matchedNodeCount`。`--only-free` 只保留可调度且有剩余 GPU 的节点；`--sort-gpu desc|asc` 控制剩余卡数排序，默认 `desc`。Agent 建议使用 `aicp gpu --only-free --sort-gpu desc --json`；逐节点数据位于 `pools[].nodes[]`，关键字段包括 `gpuModel`、`remainingGpu`、`allocatableGpu`、`remainingMemoryGiB`、`allocatableMemoryGiB`、`remainingCpu` 和 `schedulable`。
 
 ### 开发机
 
@@ -538,7 +539,11 @@ aicp dev delete DEV_NAME_OR_ID --yes
 ```bash
 aicp train list --mine
 aicp train list --status running,stopped --json
+aicp train list --page 2 --limit 200 --json
+aicp train list --creator-id IAM_USER_ID --page 1 --limit 1000 --json
 ```
+
+训练列表默认返回第 1 页的 50 条记录；`--page` 选择页码，`--limit` 支持每页 5–1000 条。`--mine` 会用当前登录态的 IAM 用户 ID 过滤，不能与 `--creator-id` 同时使用。JSON 响应中的 `TotalCount`、`Page` 和 `PageSize` 可用于脚本分页。
 
 创建：
 

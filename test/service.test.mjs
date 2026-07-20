@@ -12,6 +12,7 @@ function makeService(overrides = {}) {
     deleteNotebooks: async () => ({ Results: [{ NotebookId: "kaic-dev", Return: true }] }),
     deleteTrainJobs: async () => ({ Results: [{ JobName: "kaic-job", Return: true }] }),
     gpuCapacity: async () => ({ region: "region-1", groups: [] }),
+    currentUser: async () => ({ accountType: "iam", username: "me", userId: "user-id" }),
     ...overrides,
   };
   const templates = {
@@ -43,6 +44,27 @@ test("training duplicate names require latest", async () => {
   assert.equal((await service.resolveTraining("same", { latest: true })).TrainJobId, "kaic-new");
 });
 
+test("mine filters come from the authenticated identity and training accepts explicit pagination", async () => {
+  const developerCalls = [];
+  const trainingCalls = [];
+  const service = makeService({
+    currentUser: async () => ({ accountType: "iam", username: "login-name", userId: "login-id" }),
+    listNotebooks: async (filters) => { developerCalls.push(filters); return { Notebooks: [] }; },
+    listTrainJobs: async (filters) => { trainingCalls.push(filters); return { TrainJobSet: [] }; },
+  });
+  await service.listDevelopers({ mine: true });
+  await service.listTraining({ mine: true, page: 3, limit: 200 });
+  await service.listTraining({ creatorId: "other-id", page: 2, limit: 1000 });
+  assert.equal(developerCalls[0].username, "login-name");
+  assert.equal(trainingCalls[0].creatorId, "login-id");
+  assert.equal(trainingCalls[0].page, 3);
+  assert.equal(trainingCalls[0].limit, 200);
+  assert.equal(trainingCalls[1].creatorId, "other-id");
+  assert.equal(trainingCalls[1].page, 2);
+  assert.equal(trainingCalls[1].limit, 1000);
+  await assert.rejects(() => service.listTraining({ mine: true, creatorId: "other-id" }), /不能与/);
+});
+
 test("GPU capacity keeps pool free cards separate from queue quota remaining", async () => {
   const service = makeService({
     gpuCapacity: async () => ({
@@ -68,15 +90,18 @@ test("GPU capacity keeps pool free cards separate from queue quota remaining", a
     }),
   });
   const capacity = await service.gpuCapacity();
-  assert.equal(capacity.summary.freeGpu, 6);
+  assert.equal(capacity.summary.physicalFreeGpu, 6);
+  assert.equal("freeGpu" in capacity.summary, false);
   assert.equal(capacity.summary.totalGpu, 20);
   assert.equal(capacity.pools[0].queues[0].quotaGpu, 12);
   assert.equal(capacity.pools[0].queues[0].allocatedGpu, 9);
-  assert.equal(capacity.pools[0].queues[0].remainingGpu, 3);
+  assert.equal(capacity.pools[0].queues[0].quotaRemainingGpu, 3);
+  assert.equal("remainingGpu" in capacity.pools[0].queues[0], false);
   assert.equal(capacity.pools[0].queues[0].allowBorrowing, true);
   assert.equal(capacity.summary.nodeCount, 2);
   assert.equal(capacity.summary.gpuNodeCount, 1);
-  assert.equal(capacity.summary.visibleNodeCount, 2);
+  assert.equal(capacity.summary.matchedNodeCount, 2);
+  assert.equal("visibleNodeCount" in capacity.summary, false);
   assert.deepEqual(capacity.filters, { onlyFree: false, sortGpu: "desc" });
   assert.equal(capacity.pools[0].nodes[0].gpuModel, "A100");
   assert.equal(capacity.pools[0].nodes[0].remainingGpu, 5);
@@ -103,7 +128,7 @@ test("GPU capacity can keep only schedulable free-GPU nodes and sort ascending",
   const capacity = await service.gpuCapacity({ onlyFree: true, sortGpu: "asc" });
   assert.deepEqual(capacity.pools[0].nodes.map((node) => node.id), ["two", "five"]);
   assert.equal(capacity.summary.nodeCount, 4);
-  assert.equal(capacity.summary.visibleNodeCount, 2);
+  assert.equal(capacity.summary.matchedNodeCount, 2);
   assert.deepEqual(capacity.filters, { onlyFree: true, sortGpu: "asc" });
   await assert.rejects(() => service.gpuCapacity({ sortGpu: "random" }), /asc 或 desc/);
 });
