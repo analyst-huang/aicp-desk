@@ -596,7 +596,7 @@ aicp train logs TRAIN_NAME_OR_ID --role Worker --since 3600
 aicp train logs TRAIN_NAME_OR_ID --tail 200 --json
 ```
 
-`--tail` 支持 1–10000 行，默认 200；`--since` 限定最近若干秒，最大 604800 秒；`--interval` 控制 `--follow` 的轮询间隔，默认 3 秒。训练任务重名时可添加 `--latest`。JSON 结果的 `logs[]` 中包含 Pod 信息和 `content` 原始输出，`pods[]` 列出当前所有副本。持续追踪使用纯文本流，因此 `--follow` 不与 `--json` 同时使用。
+`--tail` 支持 1–10000 行，默认 200；`--since` 限定最近若干秒，最大 604800 秒；`--interval` 控制 `--follow` 的轮询间隔，默认 3 秒。训练任务重名时可添加 `--latest`。当服务器上的任务或 Pod 仍处于 `deploying`、`pending`、`ContainerCreating` 等未就绪状态时，平台返回的临时 `Kaic-K8sAccessFault` 会显示为“Pod 尚未就绪，请稍后重试”；运行态的真实集群访问故障仍保留原始错误。JSON 结果的 `logs[]` 中包含 Pod 信息和 `content` 原始输出，`pods[]` 列出当前所有副本。持续追踪使用纯文本流，因此 `--follow` 不与 `--json` 同时使用。
 
 启动、停止或删除：
 

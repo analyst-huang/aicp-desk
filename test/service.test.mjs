@@ -281,6 +281,39 @@ test("training logs reject invalid limits and unknown pods", async () => {
   await assert.rejects(() => service.trainingLogs("job", { pod: "missing" }), /找不到训练 Pod/);
 });
 
+test("training logs explain transient K8s access faults while pods are not ready", async () => {
+  const deployingJob = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", JobStatus: { Status: "deploying" } }] }),
+    trainJobDetail: async () => ({ TrainJobId: "kaic-job" }),
+    trainJobPods: async () => { throw new Error("Code:[Kaic-K8sAccessFault]"); },
+  });
+  await assert.rejects(
+    () => deployingJob.trainingLogs("job"),
+    /Pod 尚未就绪（当前状态：deploying），请稍后重试/,
+  );
+
+  const deployingPod = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", JobStatus: { Status: "running" } }] }),
+    trainJobDetail: async () => ({ TrainJobId: "kaic-job" }),
+    trainJobPods: async () => ({ Pods: [{ Name: "master-0", Status: { State: "ContainerCreating" } }] }),
+    trainJobLog: async () => { throw new Error("Kaic-K8sAccessFault"); },
+  });
+  await assert.rejects(
+    () => deployingPod.trainingLogs("job"),
+    /Pod 尚未就绪（当前状态：ContainerCreating），请稍后重试/,
+  );
+});
+
+test("training logs preserve K8s access faults after a pod is running", async () => {
+  const service = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", JobStatus: { Status: "running" } }] }),
+    trainJobDetail: async () => ({ TrainJobId: "kaic-job" }),
+    trainJobPods: async () => ({ Pods: [{ Name: "master-0", Status: { State: "running" } }] }),
+    trainJobLog: async () => { throw new Error("Kaic-K8sAccessFault: cluster is unavailable"); },
+  });
+  await assert.rejects(() => service.trainingLogs("job"), /Kaic-K8sAccessFault/);
+});
+
 test("saving a developer image is allowed only while running", async () => {
   let saves = 0;
   const variables = { ImageName: "snapshot", ImageType: "Personal", Namespace: "ns", ImageRepo: "repo", ImageVersion: "v1", ImageDomain: "internal.example" };
