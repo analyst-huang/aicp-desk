@@ -133,6 +133,43 @@ test("GPU capacity can keep only schedulable free-GPU nodes and sort ascending",
   await assert.rejects(() => service.gpuCapacity({ sortGpu: "random" }), /asc 或 desc/);
 });
 
+test("image listing exposes names and applies the training scenario and source filters", async () => {
+  const calls = [];
+  const service = makeService({
+    listImages: async (source, region, options) => {
+      calls.push({ source, region, options });
+      return source === "Official"
+        ? [{ ImageId: "official-id", ImageName: "PyTorch Official", ImageRepo: "pytorch", ImageVersion: "2.8", CudaVersion: "12.8" }]
+        : [{ ImageId: "personal-id", ImageName: "Team Experiment", ImageRepo: "team", ImageVersion: "v3", ImageSource: "Personal" }];
+    },
+  });
+
+  const result = await service.listImages({ kind: "train", source: "all", search: "pytorch", region: "region-2" });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.images[0].ImageName, "PyTorch Official");
+  assert.equal(result.images[0].ImageSource, "Official");
+  assert.deepEqual(calls, [
+    { source: "Official", region: "region-2", options: { applicationScenario: "训练任务" } },
+    { source: "Personal", region: "region-2", options: { applicationScenario: undefined } },
+  ]);
+});
+
+test("developer image listing does not apply the training-only scenario", async () => {
+  const calls = [];
+  const service = makeService({
+    listImages: async (source, region, options) => {
+      calls.push({ source, region, options });
+      return [];
+    },
+  });
+
+  await service.listImages({ kind: "dev", source: "official" });
+  assert.deepEqual(calls, [{ source: "Official", region: undefined, options: { applicationScenario: undefined } }]);
+  await assert.rejects(() => service.listImages({ kind: "invalid" }), /--kind/);
+  await assert.rejects(() => service.listImages({ source: "third-party" }), /第三方镜像/);
+});
+
 test("prepare train variables applies nested overrides", async () => {
   const service = makeService();
   const variables = await service.prepareCreateVariables("train", {

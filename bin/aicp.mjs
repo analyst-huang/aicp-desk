@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import process from "node:process";
+import { AGENT_INSTRUCTIONS } from "../lib/agent-instructions.mjs";
 import { createContext } from "../lib/context.mjs";
 import { loadConfig, setConfigValue } from "../lib/config.mjs";
 import {
@@ -13,6 +14,9 @@ import {
 
 const HELP = `
 AICP 本地控制工具
+
+Agent
+  aicp --agent-instructions             输出供 Agent 遵循的使用与训练实验授权说明
 
 登录与界面
   aicp login [--yes]                   打开独立 Edge，手动完成 MFA
@@ -34,6 +38,11 @@ AICP 本地控制工具
 GPU 容量
   aicp gpu [--only-free] [--sort-gpu desc|asc] [--json] [--region REGION]
                                         查看并筛选逐节点剩余资源
+
+镜像
+  aicp image list [--kind train|dev] [--source all|official|personal]
+                  [--search TEXT] [--json] [--region REGION]
+                                        查看当前可用镜像的名称、版本与 Image ID
 
 开发机
   aicp dev list [--mine] [--json]
@@ -201,6 +210,49 @@ async function handleGpu(context, args) {
     ]),
   ];
   return print(lines.join("\n"));
+}
+
+async function handleImage(context, action, args) {
+  const { positionals, options } = parseArgs(args);
+  if (action !== "list" || positionals.length) {
+    throw new Error("用法：aicp image list [--kind train|dev] [--source all|official|personal] [--search TEXT] [--json] [--region REGION]");
+  }
+  const result = await context.service.listImages({
+    kind: options.kind,
+    source: options.source,
+    search: options.search,
+    region: options.region,
+  });
+  if (options.json) return print(result, true);
+
+  const rows = result.images.map((item) => ({
+    name: item.ImageName || "-",
+    source: item.ImageSource === "Official" ? "官方" : item.ImageSource === "Personal" ? "自定义" : item.ImageSource || "-",
+    repository: item.ImageRepo && item.ImageVersion
+      ? `${item.ImageRepo}:${item.ImageVersion}`
+      : item.ImageRepo || item.ImageVersion || "-",
+    framework: Array.isArray(item.ImageFrame) ? item.ImageFrame.join(",") : item.ImageFrame || "-",
+    python: item.PythonVersion || "-",
+    cuda: item.CudaVersion || "-",
+    size: item.ImageSize ?? "-",
+    status: item.ImageStatus || "-",
+    id: item.ImageId || "-",
+  }));
+  const scene = result.kind === "train" ? "训练任务" : "开发机";
+  return print([
+    `场景: ${scene} · 区域: ${result.region} · 共 ${result.total} 个镜像`,
+    formatTable(rows, [
+      { key: "name", label: "名称" },
+      { key: "source", label: "来源" },
+      { key: "repository", label: "仓库:版本" },
+      { key: "framework", label: "框架" },
+      { key: "python", label: "Python" },
+      { key: "cuda", label: "CUDA" },
+      { key: "size", label: "大小GiB" },
+      { key: "status", label: "状态" },
+      { key: "id", label: "Image ID" },
+    ]),
+  ].join("\n\n"));
 }
 
 async function handleDev(context, action, args) {
@@ -439,6 +491,7 @@ async function handleTemplate(context, action, args) {
 async function main() {
   const [group, action, ...rest] = process.argv.slice(2);
   if (!group || ["help", "--help", "-h"].includes(group)) return print(HELP.trim());
+  if (group === "--agent-instructions") return print(AGENT_INSTRUCTIONS.trim());
   if (Number(process.versions.node.split(".")[0]) < 22) throw new Error("需要 Node.js 22 或更高版本");
   if (group === "config") return handleConfig([action, ...rest].filter((item) => item !== undefined));
 
@@ -547,6 +600,7 @@ async function main() {
   }
   if (group === "session") return print(await context.browser.status(), true);
   if (group === "gpu") return handleGpu(context, [action, ...rest].filter((item) => item !== undefined));
+  if (group === "image") return handleImage(context, action, rest);
   if (group === "dev") return handleDev(context, action, rest);
   if (group === "train") return handleTrain(context, action, rest);
   if (group === "template") return handleTemplate(context, action, rest);

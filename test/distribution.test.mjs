@@ -112,6 +112,20 @@ test("CLI exposes GPU capacity in human and JSON modes", async () => {
   assert.match(cli, /matchedNodeCount/);
 });
 
+test("CLI exposes available image names for training and developer scenarios", async () => {
+  const [cli, readme, agentInstructions] = await Promise.all([
+    read("bin/aicp.mjs"),
+    read("README.md"),
+    read("lib/agent-instructions.mjs"),
+  ]);
+  assert.match(cli, /aicp image list \[--kind train\|dev\]/);
+  assert.match(cli, /context\.service\.listImages/);
+  assert.match(cli, /item\.ImageName/);
+  assert.match(cli, /Image ID/);
+  assert.match(readme, /aicp image list --source personal --search pytorch/);
+  assert.match(agentInstructions, /aicp image list --kind train --json/);
+});
+
 test("CLI exposes authenticated session identity and training pagination", async () => {
   const [cli, readme] = await Promise.all([read("bin/aicp.mjs"), read("README.md")]);
   assert.match(cli, /验证登录 Cookie/);

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { BrowserSession } from "../lib/browser.mjs";
+import { BrowserSession, cleanupStaleEdgeSingletonLinks } from "../lib/browser.mjs";
 
 const source = await readFile(new URL("../lib/browser.mjs", import.meta.url), "utf8");
 const remoteUiSource = await readFile(new URL("../lib/remote-ui.mjs", import.meta.url), "utf8");
@@ -48,6 +48,184 @@ test("Linux remote Edge receives UTF-8 locale and the AICP private font configur
   assert.match(source, /LANG: locale/);
   assert.match(source, /LC_CTYPE: locale/);
   assert.match(source, /FONTCONFIG_FILE: fontConfig/);
+});
+
+function fakeSingletonFileSystem(initialLinks, { existingTargets = [], processCommandLines = {} } = {}) {
+  const links = new Map(Object.entries(initialLinks));
+  const targets = new Set(existingTargets);
+  const commandLines = new Map(Object.entries(processCommandLines));
+  const removed = [];
+  const missing = () => Object.assign(new Error("missing"), { code: "ENOENT" });
+  return {
+    removed,
+    links,
+    fileSystem: {
+      async readFile(filePath) {
+        if (!commandLines.has(filePath)) throw missing();
+        return Buffer.from(commandLines.get(filePath));
+      },
+      async readlink(filePath) {
+        const name = filePath.split(/[\\/]/).at(-1);
+        if (!links.has(name)) throw missing();
+        return links.get(name);
+      },
+      async stat(filePath) {
+        const name = filePath.split(/[\\/]/).at(-1);
+        const target = links.get(name);
+        if (!target || !targets.has(target)) throw missing();
+        return {};
+      },
+      async unlink(filePath) {
+        const name = filePath.split(/[\\/]/).at(-1);
+        if (!links.delete(name)) throw missing();
+        removed.push(name);
+      },
+    },
+  };
+}
+
+test("Linux Edge startup removes stale singleton links after the container hostname changes", async () => {
+  const fake = fakeSingletonFileSystem({
+    SingletonCookie: "3263048368727861673",
+    SingletonSocket: "/tmp/com.microsoft.Edge.old/SingletonSocket",
+    SingletonLock: "old-container-0-2636",
+  });
+  const result = await cleanupStaleEdgeSingletonLinks({
+    profilePath: "/state/edge-profile",
+    platform: "linux",
+    currentHostname: "new-container-0",
+    fileSystem: fake.fileSystem,
+  });
+
+  assert.equal(result.cleaned, true);
+  assert.equal(result.previousHostname, "old-container-0");
+  assert.equal(result.currentHostname, "new-container-0");
+  assert.deepEqual(fake.removed, ["SingletonCookie", "SingletonSocket", "SingletonLock"]);
+  assert.equal(fake.links.size, 0);
+});
+
+test("Linux Edge startup removes same-host singleton links when both the PID and socket are gone", async () => {
+  const fake = fakeSingletonFileSystem({
+    SingletonCookie: "cookie",
+    SingletonSocket: "/tmp/com.microsoft.Edge.stale/SingletonSocket",
+    SingletonLock: "current-container-0-4812",
+  });
+  const result = await cleanupStaleEdgeSingletonLinks({
+    profilePath: "/state/edge-profile",
+    platform: "linux",
+    currentHostname: "current-container-0",
+    fileSystem: fake.fileSystem,
+  });
+
+  assert.equal(result.cleaned, true);
+  assert.equal(result.reason, "same-host-stale");
+  assert.equal(result.lockPid, 4812);
+  assert.deepEqual(fake.removed, ["SingletonCookie", "SingletonSocket", "SingletonLock"]);
+  assert.equal(fake.links.size, 0);
+});
+
+test("Linux Edge startup preserves same-host singleton links while that PID owns the profile", async () => {
+  const profilePath = "/state/edge-profile";
+  const fake = fakeSingletonFileSystem({
+    SingletonCookie: "cookie",
+    SingletonSocket: "/tmp/com.microsoft.Edge.current/SingletonSocket",
+    SingletonLock: "current-container-0-4812",
+  }, {
+    processCommandLines: {
+      "/proc/4812/cmdline": `microsoft-edge\0--user-data-dir=${profilePath}\0`,
+    },
+  });
+  const result = await cleanupStaleEdgeSingletonLinks({
+    profilePath,
+    platform: "linux",
+    currentHostname: "current-container-0",
+    fileSystem: fake.fileSystem,
+  });
+
+  assert.equal(result.cleaned, false);
+  assert.equal(result.reason, "same-host-active");
+  assert.equal(result.processState, "profile-owner");
+  assert.equal(result.socketAlive, false);
+  assert.deepEqual(fake.removed, []);
+  assert.equal(fake.links.size, 3);
+});
+
+test("Linux Edge startup cleans a stale lock when its PID was reused by an unrelated process", async () => {
+  const fake = fakeSingletonFileSystem({
+    SingletonCookie: "cookie",
+    SingletonSocket: "/tmp/com.microsoft.Edge.stale/SingletonSocket",
+    SingletonLock: "current-container-0-4812",
+  }, {
+    processCommandLines: {
+      "/proc/4812/cmdline": "python\0worker.py\0",
+    },
+  });
+  const result = await cleanupStaleEdgeSingletonLinks({
+    profilePath: "/state/edge-profile",
+    platform: "linux",
+    currentHostname: "current-container-0",
+    fileSystem: fake.fileSystem,
+  });
+
+  assert.equal(result.cleaned, true);
+  assert.equal(result.reason, "same-host-stale");
+  assert.deepEqual(fake.removed, ["SingletonCookie", "SingletonSocket", "SingletonLock"]);
+  assert.equal(fake.links.size, 0);
+});
+
+test("Linux Edge startup preserves same-host singleton links while the socket target exists", async () => {
+  const socketTarget = "/tmp/com.microsoft.Edge.current/SingletonSocket";
+  const fake = fakeSingletonFileSystem({
+    SingletonCookie: "cookie",
+    SingletonSocket: socketTarget,
+    SingletonLock: "current-container-0-4812",
+  }, { existingTargets: [socketTarget] });
+  const result = await cleanupStaleEdgeSingletonLinks({
+    profilePath: "/state/edge-profile",
+    platform: "linux",
+    currentHostname: "current-container-0",
+    fileSystem: fake.fileSystem,
+  });
+
+  assert.equal(result.cleaned, false);
+  assert.equal(result.reason, "same-host-active");
+  assert.equal(result.processState, "missing");
+  assert.equal(result.socketAlive, true);
+  assert.deepEqual(fake.removed, []);
+  assert.equal(fake.links.size, 3);
+});
+
+test("Linux Edge startup preserves same-host singleton links when process ownership cannot be inspected", async () => {
+  const fake = fakeSingletonFileSystem({
+    SingletonCookie: "cookie",
+    SingletonSocket: "/tmp/com.microsoft.Edge.current/SingletonSocket",
+    SingletonLock: "current-container-0-4812",
+  });
+  const accessDenied = () => Object.assign(new Error("denied"), { code: "EACCES" });
+  const result = await cleanupStaleEdgeSingletonLinks({
+    profilePath: "/state/edge-profile",
+    platform: "linux",
+    currentHostname: "current-container-0",
+    fileSystem: {
+      ...fake.fileSystem,
+      async readFile() {
+        throw accessDenied();
+      },
+    },
+  });
+
+  assert.equal(result.cleaned, false);
+  assert.equal(result.reason, "same-host-active");
+  assert.equal(result.processState, "unknown");
+  assert.deepEqual(fake.removed, []);
+  assert.equal(fake.links.size, 3);
+});
+
+test("browser launches run stale singleton cleanup before spawning Edge", () => {
+  const launchLogin = source.slice(source.indexOf("async launchLogin("), source.indexOf("async launchHeadless("));
+  const launchHeadless = source.slice(source.indexOf("async launchHeadless()"), source.indexOf("async withBrowser("));
+  assert.match(launchLogin, /cleanupStaleEdgeSingletonLinks/);
+  assert.match(launchHeadless, /cleanupStaleEdgeSingletonLinks/);
 });
 
 test("browser requests use a shared reference-counted session lease", () => {

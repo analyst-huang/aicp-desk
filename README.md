@@ -389,6 +389,7 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | 安装仍然准备下载很多包 | 查看安装开头的 component plan，并运行 `aicp remote-ui doctor` 查看实际路径；环境组件必须能通过 `PATH` 或文档中的常见目录找到。已有私有副本会显示为 `private (cached)`。 |
 | Edge 下载长时间没有反馈 | v0.13.2 起 Edge 主包会显示进度并自动重试；请确认能访问 `packages.microsoft.com`。启动验证最多等待 30 秒，失败或超时会打印最后 30 行 Edge 输出。 |
 | Edge 报 `crashpad`、`--database is required` 或 `$HOME/.config` 不可写 | AICP 会使用自己的 `edge-config/`，不再依赖用户的 `$HOME/.config`。重新安装或升级到 v0.13.2。 |
+| 容器重建、迁移或 Edge 异常退出后启动超时 | v0.14.2 起每次启动都会检查 Edge `Singleton*` 链接；同一主机上仅当锁中 PID 不存在或并非该配置的 Edge，且 Socket 也已失效时才清理。浏览器配置、Cookie 和已保存密码不会被删除。 |
 | 提示私有 Xvfb 缺少 XKB 数据 | v0.13.3 起会复用主机的 `/usr/share/X11/xkb`，仅在主机也缺失时才要求私有 `xkb-data`。 |
 | `xvfb 启动失败` 且提示 `/usr/bin/xkbcomp: not found` | v0.13.6 起会把私有 Xvfb 的编译期路径重定向到 `runtime/xkbbin/xkbcomp`，无需写入系统 `/usr/bin`。远端 UI 各进程的末尾错误也会直接显示，并保存在 `AICP_HOME/remote-ui-*.log`。 |
 | VNC 页面中文显示方框或乱码 | v0.13.7 起安装器会检查中文字体；环境没有时把 `fonts-noto-cjk` 解包到 AICP 私有运行时，并为 Edge/openbox 使用 UTF-8 locale 和私有 fontconfig。重新运行 `aicp remote-ui install --yes` 后完全重启一次远端 UI。 |
@@ -467,6 +468,14 @@ aicp gui --port 18080
 aicp --help
 ```
 
+让 Agent 在操作前读取完整的使用边界、训练实验确认清单和 launch 流程：
+
+```bash
+aicp --agent-instructions
+```
+
+该选项只输出本地说明，不需要登录或访问云端。说明要求 Agent 把 `train create` 和 `train start` 都视为真实实验 launch：先用最终参数执行 `--dry-run`，向用户展示关键配置并取得本次提交的明确授权，然后才可使用 `--yes`。`--yes` 只跳过 CLI 自身的交互提示，不能代替用户同意。
+
 ### 配置
 
 ```bash
@@ -495,6 +504,25 @@ aicp gpu --only-free --sort-gpu desc --json
 ```
 
 人类可读输出会分别列出资源组物理剩余、队列配额剩余和每台机器的实时余量，并标记机器是否可调度、队列是否允许借用。JSON 中使用 `physicalFreeGpu` 表示资源组物理余量、`quotaRemainingGpu` 表示队列配额余量，避免混淆；节点筛选后的数量使用 `matchedNodeCount`。`--only-free` 只保留可调度且有剩余 GPU 的节点；`--sort-gpu desc|asc` 控制剩余卡数排序，默认 `desc`。Agent 建议使用 `aicp gpu --only-free --sort-gpu desc --json`；逐节点数据位于 `pools[].nodes[]`，关键字段包括 `gpuModel`、`remainingGpu`、`allocatableGpu`、`remainingMemoryGiB`、`allocatableMemoryGiB`、`remainingCpu` 和 `schedulable`。
+
+### 镜像
+
+列出当前可用于训练任务的官方与自定义镜像；输出会直接显示镜像名称、仓库、版本、框架、Python、CUDA、大小、状态和 Image ID：
+
+```bash
+aicp image list
+aicp image list --source official
+aicp image list --source personal --search pytorch
+aicp image list --json
+```
+
+默认场景是 `train`。查看开发机镜像时使用 `--kind dev`，跨区域查询时使用 `--region REGION`：
+
+```bash
+aicp image list --kind dev --region cn-northwest-3
+```
+
+训练场景的官方镜像使用平台的“训练任务”条件筛选，自定义镜像只返回 active 项。`--source` 支持 `all`、`official` 和 `personal`；第三方镜像由镜像仓库和标签共同确定，不在此列表中。
 
 ### 开发机
 
