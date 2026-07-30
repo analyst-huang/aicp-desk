@@ -122,6 +122,15 @@ test("training detail drawer prominently exposes task and role commands", () => 
   assert.match(styles, /#train-detail-modal \{ inset: 0 0 0 auto;/);
 });
 
+test("training detail embeds the native GPU monitor with a new-window fallback", () => {
+  assert.match(script, /Global-AVG/);
+  assert.match(script, /class="train-monitor-frame"/);
+  assert.match(script, /monitor\.url/);
+  assert.match(script, /新窗口打开/);
+  assert.match(styles, /\.train-monitor-frame/);
+  assert.match(server, /frame-src https:\/\/ksp\.console\.ksyun\.com/);
+});
+
 test("training detail drawer exposes refreshable pod logs", () => {
   assert.match(script, /id="train-log-pod"/);
   assert.match(script, /id="train-log-tail"/);
@@ -165,6 +174,9 @@ test("GUI exposes native resource-pool and queue GPU capacity", () => {
   assert.match(styles, /\.capacity-node-grid/);
   assert.match(styles, /\.capacity-node-card/);
   assert.match(styles, /\.gpu-node-toolbar/);
+  assert.match(script, /GPU 平均利用率/);
+  assert.match(script, /node\.gpuUtilization/);
+  assert.match(script, /summary\.averageGpuUtilization/);
 });
 
 test("developer fixed-node selector refreshes against current resource filters", () => {

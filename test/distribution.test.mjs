@@ -92,6 +92,8 @@ test("distribution includes agent-ready private and explicit system remote UI in
   assert.match(systemInstaller, /must be run as root/);
   assert.match(cli, /aicp remote-ui doctor/);
   assert.match(cli, /aicp remote-ui install/);
+  assert.match(cli, /aicp login remote-ui/);
+  assert.match(cli, /positionals\.includes\("remote-ui"\)/);
   assert.match(cli, /installRemoteUiRuntime/);
   assert.match(cli, /--runtime-mode auto\|private\|system/);
   assert.match(cli, /remote-ui stop --all/);
@@ -104,6 +106,8 @@ test("CLI exposes GPU capacity in human and JSON modes", async () => {
   assert.match(cli, /context\.service\.gpuCapacity/);
   assert.match(cli, /资源组物理 GPU/);
   assert.match(cli, /GPU剩余\/可分配/);
+  assert.match(cli, /GPU平均利用率/);
+  assert.match(cli, /node\.gpuUtilization/);
   assert.match(cli, /内存剩余\/可分配/);
   assert.match(cli, /--only-free/);
   assert.match(cli, /--sort-gpu desc\|asc/);
@@ -145,4 +149,15 @@ test("CLI exposes one-shot and follow training logs", async () => {
   assert.match(cli, /options\.role/);
   assert.match(readme, /aicp train logs TRAIN_NAME_OR_ID --follow/);
   assert.match(readme, /logs\[\]/);
+});
+
+test("CLI exposes task-level Grafana GPU statistics", async () => {
+  const [cli, readme] = await Promise.all([read("bin/aicp.mjs"), read("README.md")]);
+  assert.match(cli, /aicp train gpu NAME_OR_ID/);
+  assert.match(cli, /context\.service\.trainingGpu/);
+  assert.match(cli, /GPU 平均温度/);
+  assert.match(cli, /Tensor Core 利用率/);
+  assert.match(readme, /aicp train gpu TRAIN_NAME_OR_ID --latest --json/);
+  assert.match(readme, /Global-AVG/);
+  assert.match(readme, /panels\.tensorCore/);
 });

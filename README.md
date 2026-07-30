@@ -286,6 +286,12 @@ aicp login --remote-ui --web-root "$HOME/private-noVNC" --yes
 aicp login --remote-ui --yes
 ```
 
+也可以使用等价且更接近子命令习惯的写法：
+
+```bash
+aicp login remote-ui --yes
+```
+
 命令会明确打印以下内容，端口号也会包含在 `status` 输出中：
 
 ```text
@@ -440,14 +446,15 @@ aicp gui --port 18080
 
 ### 训练任务页面
 
-点击“新建训练任务”后，可配置训练专用资源组/队列、镜像、GPU、挂载、运行命令、运行时长、自愈与保留策略。列表提供详情、启动、停止、删除和存为模板按钮。详情抽屉优先显示任务入口命令和各角色运行命令，并可一键复制；“命令行输出”区域可选择全部或单个 Pod、调整最近行数、手动刷新、每 3 秒自动刷新并复制日志。已停止、失败或成功结束的任务可在输入任务名称二次确认后删除。
+点击“新建训练任务”后，可配置训练专用资源组/队列、镜像、GPU、挂载、运行命令、运行时长、自愈与保留策略。列表提供详情、启动、停止、删除和存为模板按钮。详情抽屉内嵌金山云原生 Grafana 任务监控，GPU 利用率面板中 `Global-AVG` 行的 `Mean` 即本次任务时间窗口内的平均利用率，同时保留 `Last` 和 `Max`；如果浏览器隔离导致内嵌区域要求重新登录，可以点击“新窗口打开”。详情还会优先显示任务入口命令和各角色运行命令，并可一键复制；“命令行输出”区域可选择全部或单个 Pod、调整最近行数、手动刷新、每 3 秒自动刷新并复制日志。已停止、失败或成功结束的任务可在输入任务名称二次确认后删除。
 
 ### GPU 容量页面
 
 “GPU 容量”页面使用金山云原生只读接口显示三种不同口径：
 
-- 节点实时容量：逐台机器显示名称、内网 IP、调度状态、GPU 型号，以及 GPU、内存和 CPU 的“剩余 / 可分配”数值。剩余量按“可分配 - 已分配”计算，内存单位为 GiB；列表优先展示 GPU 和内存余量较大的节点。
+- 节点实时容量：逐台机器显示名称、内网 IP、调度状态、GPU 型号、实时 GPU 利用率，以及 GPU、内存和 CPU 的“剩余 / 可分配”数值。剩余量按“可分配 - 已分配”计算，内存单位为 GiB；列表优先展示 GPU 和内存余量较大的节点。
 - 资源组物理剩余：资源组当前未分配的物理 GPU 卡数，同时显示总量、已分配和不可用卡数。
+- 资源组平均利用率：直接展示金山云原生 `GpuAverUtilization`，并在接口返回利用率趋势时同时计算趋势均值和峰值；多个资源组的总览值按各资源组 GPU 卡数加权。
 - 队列配额剩余：队列 GPU 配额减去当前已分配量，并按 GPU 型号展示配置的配额。
 
 节点余量最适合 Agent 在启动实验前判断单机是否放得下所需资源；资源组与队列数据则用于判断整体容量和权限。队列配额剩余不等于当前一定可调度的物理卡数。如果队列允许借用，最终可申请量还会受资源组实时物理剩余、GPU 型号和单节点碎片影响。
@@ -503,7 +510,7 @@ aicp gpu --only-free
 aicp gpu --only-free --sort-gpu desc --json
 ```
 
-人类可读输出会分别列出资源组物理剩余、队列配额剩余和每台机器的实时余量，并标记机器是否可调度、队列是否允许借用。JSON 中使用 `physicalFreeGpu` 表示资源组物理余量、`quotaRemainingGpu` 表示队列配额余量，避免混淆；节点筛选后的数量使用 `matchedNodeCount`。`--only-free` 只保留可调度且有剩余 GPU 的节点；`--sort-gpu desc|asc` 控制剩余卡数排序，默认 `desc`。Agent 建议使用 `aicp gpu --only-free --sort-gpu desc --json`；逐节点数据位于 `pools[].nodes[]`，关键字段包括 `gpuModel`、`remainingGpu`、`allocatableGpu`、`remainingMemoryGiB`、`allocatableMemoryGiB`、`remainingCpu` 和 `schedulable`。
+人类可读输出会分别列出资源组 GPU 平均利用率与物理剩余、队列配额剩余，以及每台机器的实时利用率和余量，并标记机器是否可调度、队列是否允许借用。JSON 中使用 `summary.averageGpuUtilization` 表示按卡数加权的资源组平均利用率，资源组趋势统计位于 `meanGpuUtilization`、`maxGpuUtilization` 和 `gpuUtilizationTrend`；`physicalFreeGpu` 表示资源组物理余量，`quotaRemainingGpu` 表示队列配额余量，避免混淆。节点筛选后的数量使用 `matchedNodeCount`。`--only-free` 只保留可调度且有剩余 GPU 的节点；`--sort-gpu desc|asc` 控制剩余卡数排序，默认 `desc`。Agent 建议使用 `aicp gpu --only-free --sort-gpu desc --json`；逐节点数据位于 `pools[].nodes[]`，关键字段包括 `gpuModel`、`gpuUtilization`、`remainingGpu`、`allocatableGpu`、`remainingMemoryGiB`、`allocatableMemoryGiB`、`remainingCpu` 和 `schedulable`。
 
 ### 镜像
 
@@ -606,6 +613,15 @@ aicp train create --template baseline --name experiment-003 \
 aicp train detail TRAIN_NAME_OR_ID
 aicp train detail TRAIN_NAME_OR_ID --latest --json
 ```
+
+按训练任务直接查看 GPU 监控统计：
+
+```bash
+aicp train gpu TRAIN_NAME_OR_ID
+aicp train gpu TRAIN_NAME_OR_ID --latest --json
+```
+
+命令复用当前金山云登录态和任务自己的运行时间窗口，输出金山云原生 Grafana 中的 `GPU 利用率`、`GPU 平均温度`、`GPU 总功率`、`GPU 显存` 与 `Tensor Core 利用率`。表格保留任务全局 `Global-AVG` 和每张 GPU 的 `Last / Mean / Max`；JSON 中的快捷字段为 `global`、`devices`，完整面板位于 `panels.utilization`、`panels.temperature`、`panels.power`、`panels.memory` 和 `panels.tensorCore`。
 
 查看训练进程的命令行输出：
 

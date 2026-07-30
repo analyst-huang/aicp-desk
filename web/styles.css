@@ -74,7 +74,7 @@ h3 { font-size: 16px; margin-bottom: 6px; }
 .capacity-legend i { width: 9px; height: 9px; border-radius: 3px; background: #63e5b5; box-shadow: 0 0 0 4px rgba(99,229,181,.12); }
 .capacity-legend i.node { background: #74b8ff; box-shadow: 0 0 0 4px rgba(116,184,255,.12); }
 .capacity-legend i.quota { background: #b6a8ff; box-shadow: 0 0 0 4px rgba(182,168,255,.12); }
-.metric-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0; }
+.metric-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 18px 0; }
 .metric { background: var(--surface); border: 1px solid var(--line); border-radius: 15px; padding: 18px 20px; box-shadow: 0 5px 20px rgba(40,34,65,.035); }
 .metric span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 8px; }
 .metric strong { font-size: 23px; letter-spacing: -.4px; }
@@ -213,6 +213,9 @@ body:has(#save-image-modal[open]), body:has(#train-detail-modal[open]) { overflo
 .detail-section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; }
 .detail-section-head h3, .detail-section-head p { margin: 0; }
 .detail-section-head p { margin-top: 4px; color: var(--muted); font-size: 9px; }
+.monitor-section { border-color: #bfe4d6; background: #fbfffd; }
+.train-monitor-frame { display: block; width: 100%; height: 540px; border: 1px solid #d9e8e2; border-radius: 10px; background: white; }
+.monitor-note { margin: 10px 0 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
 .command-section { border-color: #d9d1ff; background: #fdfcff; }
 .command-card { overflow: hidden; margin-top: 10px; border: 1px solid #dcd7eb; border-radius: 11px; background: #171d31; }
 .command-card header { display: flex; justify-content: space-between; align-items: center; padding: 9px 11px; color: #e7e9f5; background: #232b45; }

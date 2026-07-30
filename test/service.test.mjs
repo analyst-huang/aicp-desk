@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AicpService } from "../lib/service.mjs";
+import { AicpService, normalizeTrainingGpuSnapshot, trainingMonitor } from "../lib/service.mjs";
 
 function makeService(overrides = {}) {
   const api = {
@@ -71,7 +71,15 @@ test("GPU capacity keeps pool free cards separate from queue quota remaining", a
       region: "region-1",
       groups: [{
         pool: { ResourcePoolId: "pool", ResourcePoolName: "Pool", ResourcePoolType: "KCE" },
-        gpu: { Num: 20, FreeGpuNum: 6, AvailableGpuNum: null, AssignedGpuNum: 14, UnavailableGpuNum: 0 },
+        gpu: {
+          Num: 20,
+          GpuAverUtilization: 31.5,
+          FreeGpuNum: 6,
+          AvailableGpuNum: null,
+          AssignedGpuNum: 14,
+          UnavailableGpuNum: 0,
+          UsedRatio: [{ Time: 1, Val: 20 }, { Time: 2, Val: 30 }, { Time: 3, Val: 40 }],
+        },
         queues: [{
           Id: "queue", Name: "GPU Queue", QueueType: "normal", WorkloadType: ["notebook", "trainjob"], AllowBorrowing: true,
           GpuModels: [{ Model: "A100", Quota: 8 }, { Model: "H800", Quota: 4 }],
@@ -80,7 +88,7 @@ test("GPU capacity keeps pool free cards separate from queue quota remaining", a
         nodes: [{
           InstanceId: "node-1", InstanceName: "Node 1", InstanceIp: "10.0.0.1", InstanceStatus: "normal", InstanceStatusName: "正常",
           UnSchedulable: false, IsGpu: true, GpuType: "A100",
-          Gpu: { Allocatable: 8, Allocated: 3 }, Memory: { Allocatable: 512, Allocated: 128 }, Cpu: { Allocatable: 96, Allocated: 40 },
+          Gpu: { Allocatable: 8, Allocated: 3, GpuUtilization: 43.2 }, Memory: { Allocatable: 512, Allocated: 128 }, Cpu: { Allocatable: 96, Allocated: 40 },
         }, {
           InstanceId: "node-2", InstanceName: "Node 2", InstanceIp: "10.0.0.2", InstanceStatus: "normal", InstanceStatusName: "正常",
           UnSchedulable: true, IsGpu: false,
@@ -93,6 +101,9 @@ test("GPU capacity keeps pool free cards separate from queue quota remaining", a
   assert.equal(capacity.summary.physicalFreeGpu, 6);
   assert.equal("freeGpu" in capacity.summary, false);
   assert.equal(capacity.summary.totalGpu, 20);
+  assert.equal(capacity.summary.averageGpuUtilization, 31.5);
+  assert.equal(capacity.summary.meanGpuUtilization, 30);
+  assert.equal(capacity.summary.maxGpuUtilization, 40);
   assert.equal(capacity.pools[0].queues[0].quotaGpu, 12);
   assert.equal(capacity.pools[0].queues[0].allocatedGpu, 9);
   assert.equal(capacity.pools[0].queues[0].quotaRemainingGpu, 3);
@@ -104,6 +115,7 @@ test("GPU capacity keeps pool free cards separate from queue quota remaining", a
   assert.equal("visibleNodeCount" in capacity.summary, false);
   assert.deepEqual(capacity.filters, { onlyFree: false, sortGpu: "desc" });
   assert.equal(capacity.pools[0].nodes[0].gpuModel, "A100");
+  assert.equal(capacity.pools[0].nodes[0].gpuUtilization, 43.2);
   assert.equal(capacity.pools[0].nodes[0].remainingGpu, 5);
   assert.equal(capacity.pools[0].nodes[0].remainingMemoryGiB, 384);
   assert.equal(capacity.pools[0].nodes[0].remainingCpu, 56);
@@ -273,12 +285,101 @@ test("training deletion requires a terminal state", async () => {
 
 test("training detail returns task-level and role commands", async () => {
   const service = makeService({
-    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", JobStatus: { Status: "succeed" } }] }),
-    trainJobDetail: async () => ({ TrainJobId: "kaic-job", EntryPointCommand: "ray start", Roles: [{ RoleName: "Master", RunCommand: "python train.py" }] }),
+    listTrainJobs: async () => ({ TrainJobSet: [{ TrainJobId: "kaic-job", TrainJobName: "job", JobStatus: { Status: "succeed", StartTime: "2026-07-30T05:00:00Z", EndTime: "2026-07-30T05:20:00Z" } }] }),
+    trainJobDetail: async () => ({
+      TrainJobId: "kaic-job",
+      ClusterId: "cluster",
+      Namespace: "team namespace",
+      RebootNumber: 2,
+      EntryPointCommand: "ray start",
+      Roles: [{ RoleName: "Master", RunCommand: "python train.py" }],
+    }),
   });
   const payload = await service.trainingDetail("job");
   assert.equal(payload.detail.EntryPointCommand, "ray start");
   assert.equal(payload.detail.Roles[0].RunCommand, "python train.py");
+  assert.equal(payload.monitor.available, true);
+  const monitorUrl = new URL(payload.monitor.url);
+  assert.equal(monitorUrl.hostname, "ksp.console.ksyun.com");
+  assert.equal(monitorUrl.searchParams.get("var-namespace"), "team namespace");
+  assert.equal(monitorUrl.searchParams.get("var-job_id"), "kaic-job-2");
+  assert.equal(monitorUrl.searchParams.get("from"), String(Date.parse("2026-07-30T05:00:00Z")));
+  assert.equal(monitorUrl.searchParams.get("to"), String(Date.parse("2026-07-30T05:20:00Z")));
+});
+
+test("training monitor follows the native Grafana task window", () => {
+  const monitor = trainingMonitor(
+    { TrainJobId: "kaic-job", ClusterId: "cluster/id", Namespace: "kaic-job", RebootNumber: 0 },
+    { JobStatus: { StartTime: "2026-07-30T05:00:00Z" } },
+    Date.parse("2026-07-30T05:15:00Z"),
+  );
+  assert.equal(monitor.available, true);
+  assert.equal(monitor.live, true);
+  assert.match(monitor.url, /\/cluster%2Fid\/kaic-grafana\/d\/ezyy84dHz\/kaic-dashboard/);
+  assert.equal(new URL(monitor.url).searchParams.get("to"), String(Date.parse("2026-07-30T05:15:00Z")));
+  assert.equal(trainingMonitor({ TrainJobId: "kaic-job" }, {}).available, false);
+});
+
+test("training GPU metrics normalize native Grafana Last, Mean and Max values", async () => {
+  const snapshot = {
+    panels: [{
+      title: "GPU 利用率",
+      headers: ["Name", "Last *", "Mean", "Max"],
+      rows: [
+        ["Global-AVG", "56.5%", "52.7%", "78.3%"],
+        ["10.8.2.47 GPU3", "72%", "69.8%", "89%"],
+      ],
+    }, {
+      title: "GPU 平均温度",
+      value: "45 °C",
+    }, {
+      title: "GPU 总功率",
+      value: "1560 W",
+    }, {
+      title: "GPU 显存",
+      rows: [
+        ["10.8.2.47 GPU3", "12.7 GiB", "12.1 GiB", "12.7 GiB"],
+        ["10.8.2.47 GPU0", "512 MiB", "1 GiB", "2 GiB"],
+      ],
+    }, {
+      title: "Tensor Core 利用率",
+      rows: [["10.8.2.47 GPU3", "13.0%", "12.8%", "14.4%"]],
+    }],
+  };
+  const panels = normalizeTrainingGpuSnapshot(snapshot);
+  assert.deepEqual(
+    { last: panels.utilization.rows[0].last, mean: panels.utilization.rows[0].mean, max: panels.utilization.rows[0].max },
+    { last: 56.5, mean: 52.7, max: 78.3 },
+  );
+  assert.equal(panels.utilization.unit, "%");
+  assert.equal(panels.temperature.value, 45);
+  assert.equal(panels.temperature.unit, "°C");
+  assert.equal(panels.power.value, 1.56);
+  assert.equal(panels.memory.rows[0].mean, 12.1);
+  assert.equal(panels.memory.rows[1].last, 0.5);
+  assert.equal(panels.memory.unit, "GiB");
+  assert.equal(panels.tensorCore.rows[0].max, 14.4);
+
+  const service = makeService({
+    listTrainJobs: async () => ({ TrainJobSet: [{
+      TrainJobId: "kaic-job",
+      TrainJobName: "job",
+      JobStatus: { Status: "running", StartTime: "2026-07-30T05:00:00Z" },
+    }] }),
+    trainJobDetail: async () => ({
+      TrainJobId: "kaic-job",
+      ClusterId: "cluster",
+      Namespace: "kaic-job",
+      RebootNumber: 0,
+    }),
+    trainJobGpuMetrics: async () => snapshot,
+  });
+  const payload = await service.trainingGpu("job");
+  assert.equal(payload.task.name, "job");
+  assert.equal(payload.global.mean, 52.7);
+  assert.equal(payload.devices[0].name, "10.8.2.47 GPU3");
+  assert.equal(payload.panels.temperature.raw, "45 °C");
+  assert.equal(payload.window.live, true);
 });
 
 test("training logs enumerate pods and read native output", async () => {

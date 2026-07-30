@@ -267,6 +267,33 @@ test("current-user probe exposes only authenticated identity fields", async () =
   });
 });
 
+test("Grafana GPU metrics use a temporary authenticated target and always close it", async () => {
+  const browser = new BrowserSession({ debugPort: 9337 });
+  const calls = [];
+  browser.withBrowser = async (callback) => callback();
+  browser.waitForAicpTarget = async () => ({ id: "console" });
+  browser.createTarget = async (url) => { calls.push(["create", url]); return { id: "grafana" }; };
+  browser.activateTarget = async (id) => { calls.push(["activate", id]); };
+  browser.targets = async () => [{
+    id: "grafana",
+    url: "https://ksp.console.ksyun.com/webide-proxy/grafana/cluster/kaic-grafana/d/ezyy84dHz/kaic-dashboard",
+  }];
+  browser.evaluate = async () => ({
+    ready: true,
+    panels: [{ title: "GPU 利用率", rows: [["Global-AVG", "50%", "40%", "80%"]] }],
+  });
+  browser.closeTarget = async (id) => { calls.push(["close", id]); };
+  const result = await browser.grafanaGpuMetrics(
+    "https://ksp.console.ksyun.com/webide-proxy/grafana/cluster/kaic-grafana/d/ezyy84dHz/kaic-dashboard",
+  );
+  assert.equal(result.panels[0].title, "GPU 利用率");
+  assert.deepEqual(calls.map(([action]) => action), ["create", "activate", "close"]);
+  await assert.rejects(
+    () => browser.grafanaGpuMetrics("https://example.com/kaic-dashboard"),
+    /无效的训练任务 Grafana 监控地址/,
+  );
+});
+
 test("remote UI startup retains per-process logs and includes stderr on failure", () => {
   assert.match(remoteUiSource, /remote-ui-\$\{spec\.name\}\.log/);
   assert.match(remoteUiSource, /slice\(-20\)/);

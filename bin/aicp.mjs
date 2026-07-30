@@ -20,9 +20,12 @@ Agent
 
 登录与界面
   aicp login [--yes]                   打开独立 Edge，手动完成 MFA
-  aicp login --remote-ui [--web-port 6080] [--vnc-port 5900]
+  aicp login remote-ui [--web-port 6080] [--vnc-port 5900]
              [--display :99] [--web-root PATH] [--yes]
                                         在 Linux 无显示器服务器启动可转发登录界面
+  aicp login --remote-ui [--web-port 6080] [--vnc-port 5900]
+             [--display :99] [--web-root PATH] [--yes]
+                                        同上，兼容选项形式
   aicp remote-ui install [--runtime-mode auto|private|system]
                          [--allow-no-sandbox] [--allow-root] [--yes]
                                         自动复用、全私有或系统级安装远端 UI 组件
@@ -62,6 +65,7 @@ GPU 容量
   aicp train stop NAME_OR_ID [--latest] [--yes]
   aicp train delete NAME_OR_ID [--latest] [--yes]
   aicp train detail NAME_OR_ID [--latest] [--json]
+  aicp train gpu NAME_OR_ID [--latest] [--json]
   aicp train logs NAME_OR_ID [--latest] [--pod POD] [--role ROLE]
                   [--tail 200] [--since SECONDS] [--follow] [--interval 3] [--json]
 
@@ -99,6 +103,10 @@ function printRemoteUiAccess(status) {
   print(`登录地址: ${status.url}`);
 }
 
+function percentText(value) {
+  return value === null || value === undefined ? "-" : `${value}%`;
+}
+
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function trainingLogsText(payload) {
@@ -109,6 +117,40 @@ function trainingLogsText(payload) {
     const body = String(content ?? "").trimEnd() || "（暂无输出）";
     return `===== ${pod.Name} · ${pod.Role || "未命名角色"} · ${status} =====\n${body}`;
   }).join("\n\n");
+}
+
+function trainingGpuText(payload) {
+  const tableText = (panel) => {
+    if (!panel?.rows?.length) return "暂无数据";
+    return formatTable(panel.rows.map((row) => ({
+      name: row.name,
+      last: row.raw?.last ?? "-",
+      mean: row.raw?.mean ?? "-",
+      max: row.raw?.max ?? "-",
+    })), [
+      { key: "name", label: "Name" },
+      { key: "last", label: "Last" },
+      { key: "mean", label: "Mean" },
+      { key: "max", label: "Max" },
+    ]);
+  };
+  const scalarText = (panel) => panel?.raw
+    || (panel?.value === null || panel?.value === undefined ? "-" : `${panel.value}${panel.unit ? ` ${panel.unit}` : ""}`);
+  const sections = [
+    `任务: ${payload.task.name}`,
+    `ID: ${payload.task.id}`,
+    `状态: ${payload.task.status || "-"}`,
+    `监控窗口: ${payload.window.startTime} → ${payload.window.endTime}${payload.window.live ? "（运行中）" : ""}`,
+    `GPU 平均温度: ${scalarText(payload.panels.temperature)}`,
+    `GPU 总功率: ${scalarText(payload.panels.power)}`,
+    "",
+    "GPU 利用率",
+    tableText(payload.panels.utilization),
+  ];
+  if (payload.panels.memory) sections.push("", "GPU 显存", tableText(payload.panels.memory));
+  if (payload.panels.tensorCore) sections.push("", "Tensor Core 利用率", tableText(payload.panels.tensorCore));
+  sections.push("", `原生监控: ${payload.monitorUrl}`);
+  return sections.join("\n");
 }
 
 function appendedLogText(previous, current) {
@@ -152,6 +194,7 @@ async function handleGpu(context, args) {
     total: pool.totalGpu,
     assigned: pool.assignedGpu,
     unavailable: pool.unavailableGpu,
+    utilization: percentText(pool.averageGpuUtilization),
   }));
   const queueRows = capacity.pools.flatMap((pool) => pool.queues.map((queue) => ({
     pool: pool.name,
@@ -168,6 +211,7 @@ async function handleGpu(context, args) {
     ip: node.ip || "-",
     status: node.schedulable ? (node.statusName || node.status || "正常") : "不可调度",
     model: node.gpuModel || "CPU",
+    utilization: percentText(node.gpuUtilization),
     gpu: `${node.remainingGpu}/${node.allocatableGpu}`,
     memory: `${node.remainingMemoryGiB}/${node.allocatableMemoryGiB}`,
     cpu: `${node.remainingCpu}/${node.allocatableCpu}`,
@@ -175,6 +219,7 @@ async function handleGpu(context, args) {
   const lines = [
     `区域: ${capacity.region}`,
     `资源组物理 GPU: 剩余 ${capacity.summary.physicalFreeGpu} / 总计 ${capacity.summary.totalGpu}`,
+    `资源组 GPU 平均利用率: ${percentText(capacity.summary.averageGpuUtilization)}`,
     "",
     "资源组",
     formatTable(poolRows, [
@@ -184,6 +229,7 @@ async function handleGpu(context, args) {
       { key: "total", label: "总GPU" },
       { key: "assigned", label: "已分配" },
       { key: "unavailable", label: "不可用" },
+      { key: "utilization", label: "GPU平均利用率" },
     ]),
     "",
     "队列（剩余 = 配额 - 已分配；允许借用时实际可申请量还受资源组实时空闲量影响）",
@@ -204,6 +250,7 @@ async function handleGpu(context, args) {
       { key: "ip", label: "节点IP" },
       { key: "status", label: "调度状态" },
       { key: "model", label: "GPU型号" },
+      { key: "utilization", label: "GPU利用率" },
       { key: "gpu", label: "GPU剩余/可分配" },
       { key: "memory", label: "内存剩余/可分配" },
       { key: "cpu", label: "CPU剩余/可分配" },
@@ -374,6 +421,14 @@ async function handleTrain(context, action, args) {
   }
 
   const selector = positionals[0];
+  if (action === "gpu" && selector) {
+    const payload = await context.service.trainingGpu(selector, {
+      latest: Boolean(options.latest),
+      region: options.region,
+    });
+    if (options.json) return print(redact(payload), true);
+    return print(trainingGpuText(payload));
+  }
   if (action === "detail" && selector) {
     const payload = await context.service.trainingDetail(selector, { latest: Boolean(options.latest), region: options.region });
     if (options.json) return print(redact(payload), true);
@@ -497,8 +552,8 @@ async function main() {
 
   const context = await createContext();
   if (group === "login") {
-    const { options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
-    const remoteUi = Boolean(options["remote-ui"]);
+    const { positionals, options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
+    const remoteUi = Boolean(options["remote-ui"]) || positionals.includes("remote-ui");
     const approved = await confirmAction(
       remoteUi
         ? "将在此 Linux 服务器启动仅监听 127.0.0.1 的 Edge/noVNC 登录界面；继续？"

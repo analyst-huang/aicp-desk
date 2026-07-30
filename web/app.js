@@ -103,6 +103,13 @@ function metric(label, value, note = "") {
   return `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div>`;
 }
 
+function percentLabel(value) {
+  const number = Number(value);
+  return value === null || value === undefined || !Number.isFinite(number)
+    ? "—"
+    : `${Math.round(number * 100) / 100}%`;
+}
+
 function renderSession() {
   const badge = $("#session-badge");
   const detail = $("#session-detail");
@@ -335,6 +342,7 @@ function renderGpuPools(pools) {
         <header><div><strong>${escapeHtml(node.name || "-")}</strong><code class="node-ip">${escapeHtml(node.ip || "-")}</code></div>${nodeStatus}</header>
         <div class="capacity-node-meta">${gpuModel}<small title="${escapeHtml(node.id)}">${escapeHtml(node.id)}</small></div>
         <dl class="capacity-node-stats">
+          <div><dt>GPU 利用率</dt><dd>${escapeHtml(percentLabel(node.gpuUtilization))}</dd></div>
           <div><dt>GPU 剩余</dt><dd>${escapeHtml(node.remainingGpu)}<small> / ${escapeHtml(node.allocatableGpu)} 卡</small></dd></div>
           <div><dt>内存剩余</dt><dd>${escapeHtml(node.remainingMemoryGiB)}<small> / ${escapeHtml(node.allocatableMemoryGiB)} GiB</small></dd></div>
           <div><dt>CPU 剩余</dt><dd>${escapeHtml(node.remainingCpu)}<small> / ${escapeHtml(node.allocatableCpu)} 核</small></dd></div>
@@ -344,7 +352,7 @@ function renderGpuPools(pools) {
     return `<article class="panel capacity-pool">
       <header class="capacity-pool-head">
         <div><p class="eyebrow">Resource pool · ${escapeHtml(pool.type || "-")}</p><h3>${escapeHtml(pool.name || pool.id)}</h3><small>${escapeHtml(pool.id)}</small></div>
-        <div class="capacity-pool-total"><span>物理 GPU 剩余</span><strong>${escapeHtml(pool.physicalFreeGpu)}<small> / ${escapeHtml(pool.totalGpu)} 卡</small></strong><progress max="${escapeHtml(max)}" value="${escapeHtml(pool.physicalFreeGpu)}"></progress><p>已分配 ${escapeHtml(pool.assignedGpu)} · 不可用 ${escapeHtml(pool.unavailableGpu)}</p></div>
+        <div class="capacity-pool-total"><span>物理 GPU 剩余</span><strong>${escapeHtml(pool.physicalFreeGpu)}<small> / ${escapeHtml(pool.totalGpu)} 卡</small></strong><progress max="${escapeHtml(max)}" value="${escapeHtml(pool.physicalFreeGpu)}"></progress><p>已分配 ${escapeHtml(pool.assignedGpu)} · 不可用 ${escapeHtml(pool.unavailableGpu)} · 平均利用率 ${escapeHtml(percentLabel(pool.averageGpuUtilization))}</p></div>
       </header>
       <div class="capacity-section-head"><div><h4>节点实时容量</h4><p>优先按剩余 GPU 卡数排序；适合 Agent 在启动实验前选机。</p></div><span>${escapeHtml(visibleNodes.length)} / ${escapeHtml(pool.nodes.length)} 台</span></div>
       <div class="capacity-node-table capacity-node-grid">${nodeCards || '<div class="empty">没有符合筛选条件的节点</div>'}</div>
@@ -361,19 +369,19 @@ async function loadGpu({ background = false } = {}) {
   const container = $("#gpu-pools");
   if (!state.session.authenticated) {
     state.gpuCapacity = null;
-    $("#gpu-metrics").innerHTML = metric("资源组", "—") + metric("物理 GPU 剩余", "—") + metric("物理 GPU 总量", "—") + metric("节点", "—");
+    $("#gpu-metrics").innerHTML = metric("资源组", "—") + metric("物理 GPU 剩余", "—") + metric("物理 GPU 总量", "—") + metric("GPU 平均利用率", "—") + metric("节点", "—");
     container.innerHTML = '<div class="panel capacity-empty">请先点击右上角“登录 / 更新会话”</div>';
     state.gpuLoading = false;
     return;
   }
   if (!background) {
-    $("#gpu-metrics").innerHTML = metric("资源组", "…") + metric("物理 GPU 剩余", "…") + metric("物理 GPU 总量", "…") + metric("节点", "…");
+    $("#gpu-metrics").innerHTML = metric("资源组", "…") + metric("物理 GPU 剩余", "…") + metric("物理 GPU 总量", "…") + metric("GPU 平均利用率", "…") + metric("节点", "…");
     container.innerHTML = '<div class="panel capacity-empty"><div class="skeleton"></div>正在读取资源组、队列和节点容量……</div>';
   }
   try {
     state.gpuCapacity = await api("/api/gpu");
     const summary = state.gpuCapacity.summary;
-    $("#gpu-metrics").innerHTML = metric("资源组", summary.poolCount, "个") + metric("物理 GPU 剩余", summary.physicalFreeGpu, "卡") + metric("物理 GPU 总量", summary.totalGpu, "卡") + metric("节点", summary.nodeCount, `台 · ${summary.gpuNodeCount} 台 GPU`);
+    $("#gpu-metrics").innerHTML = metric("资源组", summary.poolCount, "个") + metric("物理 GPU 剩余", summary.physicalFreeGpu, "卡") + metric("物理 GPU 总量", summary.totalGpu, "卡") + metric("GPU 平均利用率", percentLabel(summary.averageGpuUtilization), summary.meanGpuUtilization === null ? "当前" : `趋势均值 ${percentLabel(summary.meanGpuUtilization)}`) + metric("节点", summary.nodeCount, `台 · ${summary.gpuNodeCount} 台 GPU`);
     container.innerHTML = renderGpuPools(state.gpuCapacity.pools);
     renderGpuFilterSummary(state.gpuCapacity.pools);
     markResourceRefresh();
@@ -432,8 +440,23 @@ function trainCommandBlocks(detail) {
   return commands;
 }
 
+function trainMonitorHtml(monitor) {
+  if (!monitor?.available) {
+    return `<section class="detail-section monitor-section"><div class="detail-section-head"><div><h3>GPU 监控</h3><p>任务级 GPU 利用率、显存和其他硬件指标</p></div></div><div class="detail-empty">${escapeHtml(monitor?.reason || "该任务暂无监控数据")}</div></section>`;
+  }
+  return `
+    <section class="detail-section monitor-section">
+      <div class="detail-section-head">
+        <div><h3>GPU 监控</h3><p>Global-AVG 行的 Mean 是当前任务时间窗口内的 GPU 平均利用率</p></div>
+        <a class="button ghost small" href="${escapeHtml(monitor.url)}" target="_blank" rel="noreferrer">新窗口打开</a>
+      </div>
+      <iframe class="train-monitor-frame" src="${escapeHtml(monitor.url)}" title="训练任务 GPU 监控" loading="lazy" referrerpolicy="no-referrer"></iframe>
+      <p class="monitor-note">${monitor.live ? "运行中的任务以打开监控时刻作为窗口终点；重新打开详情可更新窗口。" : "该任务已结束，监控窗口固定为本次任务的开始至结束时间。"} 若内嵌区域要求重新登录，请使用右上角“新窗口打开”。</p>
+    </section>`;
+}
+
 function renderTrainDetail(payload) {
-  const { item, detail } = payload;
+  const { item, detail, monitor } = payload;
   const status = item.JobStatus?.Status || "unknown";
   const commands = trainCommandBlocks(detail);
   state.trainDetailCommands = commands.map((entry) => entry.command);
@@ -453,6 +476,7 @@ function renderTrainDetail(payload) {
     <div class="detail-summary">
       <div><span>状态</span>${statusPill(status)}</div><div><span>框架</span><strong>${escapeHtml(detail.Framework || "-")}</strong></div><div><span>队列</span><strong>${escapeHtml(detail.QueueName || "-")}</strong></div><div><span>资源组</span><strong>${escapeHtml(detail.ResourcePoolName || "-")}</strong></div>
     </div>
+    ${trainMonitorHtml(monitor)}
     <section class="detail-section command-section"><div class="detail-section-head"><div><h3>运行命令</h3><p>任务级入口命令与每个角色实际配置的启动命令</p></div></div>${commandHtml}</section>
     <section class="detail-section log-section">
       <div class="detail-section-head log-section-head"><div><h3>命令行输出</h3><p>读取金山云当前保留的 Pod stdout / stderr</p></div><div class="log-actions"><button type="button" class="button ghost small" data-copy-train-log>复制日志</button><button type="button" class="button ghost small" data-refresh-train-log>刷新</button></div></div>

@@ -27,10 +27,22 @@ test("developer creation option queries match the current platform operations", 
   assert.match(operations.DESCRIBE_CLUSTER_QUEUES, /Allocated \{ cpu memory storage gpu \}/);
   assert.match(operations.DESCRIBE_GPU_INFO, /query DescribeGpuInfo/);
   assert.match(operations.DESCRIBE_GPU_INFO, /FreeGpuNum/);
+  assert.match(operations.DESCRIBE_GPU_INFO, /GpuAverUtilization/);
+  assert.match(operations.DESCRIBE_GPU_INFO, /UsedRatio \{ Time Val \}/);
+  assert.match(operations.DESCRIBE_RESOURCE_POOL_INSTANCES, /GpuUtilization/);
   assert.match(operations.DATA_SET_LIST, /query DataSetList/);
   assert.match(operations.DESCRIBE_QUEUE_RESOURCE_CONFIG, /query DescribeQueueResourceConfigInfo/);
   assert.match(operations.DESCRIBE_AVAILABLE_ADDRESSES, /query DescribleNoUseAddress/);
   assert.match(operations.DESCRIBE_INSTANCES_BY_RESOURCE, /query DescribeInstancesByResource/);
+});
+
+test("training detail exposes the native monitor routing fields", () => {
+  assert.match(operations.DESCRIBE_TRAIN_JOB_DETAIL, /ClusterId/);
+  assert.match(operations.DESCRIBE_TRAIN_JOB_DETAIL, /Namespace/);
+  assert.match(operations.DESCRIBE_TRAIN_JOB_DETAIL, /RebootNumber/);
+  assert.match(operations.DESCRIBE_TRAIN_JOB_DETAIL, /JobStatus \{/);
+  assert.match(operations.DESCRIBE_TRAIN_JOB_DETAIL, /StartTime/);
+  assert.match(operations.DESCRIBE_TRAIN_JOB_DETAIL, /EndTime/);
 });
 
 test("save-image option queries match the native KCR selectors", () => {

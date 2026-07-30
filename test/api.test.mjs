@@ -33,6 +33,19 @@ test("training list forwards page, large limits, and creator IDs", async () => {
   await assert.rejects(() => api.listTrainJobs({ limit: 1001 }), /limit/);
 });
 
+test("training GPU metrics reuse the authenticated Grafana browser session", async () => {
+  const calls = [];
+  const api = new AicpApi({
+    grafanaGpuMetrics: async (url) => {
+      calls.push(url);
+      return { panels: [{ title: "GPU 利用率" }] };
+    },
+  }, { region: "region-1" });
+  const result = await api.trainJobGpuMetrics("https://ksp.console.ksyun.com/monitor");
+  assert.equal(result.panels[0].title, "GPU 利用率");
+  assert.deepEqual(calls, ["https://ksp.console.ksyun.com/monitor"]);
+});
+
 test("developer create options combine live platform selectors without mutations", async () => {
   let closed = 0;
   const calls = [];
