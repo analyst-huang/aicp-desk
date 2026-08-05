@@ -7,11 +7,11 @@ const cliSource = await readFile(new URL("../bin/aicp.mjs", import.meta.url), "u
 
 test("--agent-instructions prints a local agent contract without requiring login", () => {
   assert.match(AGENT_INSTRUCTIONS, /AICP Agent 总体说明/);
-  assert.match(AGENT_INSTRUCTIONS, /Launch 训练实验前必须确认/);
-  assert.match(AGENT_INSTRUCTIONS, /aicp train create 会创建并提交真实训练任务/);
-  assert.match(AGENT_INSTRUCTIONS, /--yes 仅跳过 CLI 的交互提示，不代表用户同意/);
-  assert.match(AGENT_INSTRUCTIONS, /完全相同的参数去掉 --dry-run 并添加 --yes/);
-  assert.match(AGENT_INSTRUCTIONS, /stop、delete、重新 start、扩大资源或创建替代实验需要单独授权/);
+  assert.match(AGENT_INSTRUCTIONS, /用户可以一次授权一个实验周期/);
+  assert.match(AGENT_INSTRUCTIONS, /参数发生变化不需要重新向用户确认/);
+  assert.match(AGENT_INSTRUCTIONS, /每次提交前必须先 dry-run/);
+  assert.match(AGENT_INSTRUCTIONS, /只有三类情况必须暂停并重新请求用户授权/);
+  assert.match(AGENT_INSTRUCTIONS, /stop、delete、重新 start.*均不需要单独授权/);
 
   const agentRoute = cliSource.indexOf('if (group === "--agent-instructions")');
   const contextCreation = cliSource.indexOf("const context = await createContext()");
