@@ -47,10 +47,12 @@ test("modal close controls bypass required-field validation", () => {
 
 test("developer creation mirrors native configuration sections", () => {
   for (const label of ["环境配置", "资源配置", "挂载配置", "访问配置", "权限配置"]) assert.match(html, new RegExp(label));
-  for (const id of ["dev-image-select", "dev-resource-pool", "dev-queue", "dev-storage-rows", "dev-enable-ssh", "dev-service-rows", "dev-queue-share"]) {
+  for (const id of ["dev-project", "dev-image-select", "dev-resource-pool", "dev-queue", "dev-storage-rows", "dev-enable-ssh", "dev-service-rows", "dev-queue-share"]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(script, /\/api\/dev\/create-options/);
+  assert.match(script, /state\.devOptions\?\.projects/);
+  assert.match(script, /variables\.ProjectId = Number\(projectId\)/);
   assert.match(script, /loadSelectedTemplate/);
   assert.match(html, /id="dev-allocation-id"[^>]*><option/);
   assert.match(script, /item\.PublicIp === selectedValue/);

@@ -10,6 +10,8 @@ test("all GraphQL documents have an operation declaration", () => {
 
 test("write operations use the expected platform operation names", () => {
   assert.match(operations.CREATE_NOTEBOOK, /mutation CreateNotebook/);
+  assert.match(operations.CREATE_NOTEBOOK, /\$ProjectId: Float!/);
+  assert.match(operations.CREATE_NOTEBOOK, /ProjectId: \$ProjectId/);
   assert.match(operations.MODIFY_NOTEBOOK_STATUS, /mutation ModifyNotebookStatus/);
   assert.match(operations.BATCH_DELETE_NOTEBOOKS, /mutation BatchDeleteNotebook/);
   assert.match(operations.SAVE_NOTEBOOK_IMAGE, /mutation SaveNotebookImage/);
@@ -21,6 +23,8 @@ test("write operations use the expected platform operation names", () => {
 
 test("developer creation option queries match the current platform operations", () => {
   assert.match(operations.DESCRIBE_AICP_IMAGES, /query DescribeAicpImages/);
+  assert.match(operations.LIST_AICP_PROJECTS, /query AicpGetAccountAllProjectList/);
+  assert.match(operations.LIST_AICP_PROJECTS, /ProjectId/);
   assert.match(operations.DESCRIBE_AICP_IMAGES, /ApplicationScenario/);
   assert.match(operations.DESCRIBE_ALL_RESOURCE_POOLS, /query DescribeAllResourcePool/);
   assert.match(operations.DESCRIBE_CLUSTER_QUEUES, /query DescribeClusterQueue/);

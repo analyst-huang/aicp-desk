@@ -54,6 +54,7 @@ test("developer create options combine live platform selectors without mutations
     closeActiveBrowser: async () => { closed += 1; },
     graphql: async (operation, _query, variables) => {
       calls.push({ operation, variables });
+      if (operation === "AicpGetAccountAllProjectList") return { AicpGetAccountAllProjectList: { ListProjectResult: { ProjectList: [{ ProjectId: 0, ProjectName: "默认项目" }] } } };
       if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool", ResourcePoolName: "Pool" }] } };
       if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "queue", ResourcePoolId: "pool" }] } };
       if (operation === "DescribeAicpImages") return { DescribeAicpImages: { ImageSet: [{ ImageId: `${variables.ImageSource}-image` }] } };
@@ -66,6 +67,7 @@ test("developer create options combine live platform selectors without mutations
   });
   const api = new AicpApi(browser, { region: "region-1" });
   const options = await api.developerCreateOptions();
+  assert.deepEqual(options.projects, [{ ProjectId: 0, ProjectName: "默认项目" }]);
   assert.equal(options.resourcePools.length, 1);
   assert.equal(options.queues[0].Name, "queue");
   assert.equal(options.images.official[0].ImageId, "Official-image");
@@ -85,6 +87,7 @@ test("developer create converts a legacy public IP to its Allocation ID before m
     closeActiveBrowser: async () => { closed += 1; },
     graphql: async (operation, _query, variables) => {
       calls.push({ operation, variables });
+      if (operation === "AicpGetAccountAllProjectList") return { AicpGetAccountAllProjectList: { ListProjectResult: { ProjectList: [{ ProjectId: 0, ProjectName: "默认项目" }] } } };
       if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool" }] } };
       if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "queue" }] } };
       if (operation === "DescribleNoUseAddress") {
@@ -97,6 +100,7 @@ test("developer create converts a legacy public IP to its Allocation ID before m
   const api = new AicpApi(browser, { region: "region-1" });
   const result = await api.createNotebook({
     DisplayName: "dev",
+    ProjectId: "0",
     ResourcePoolId: "pool",
     QueueName: "queue",
     ImageSource: 0,
@@ -107,6 +111,7 @@ test("developer create converts a legacy public IP to its Allocation ID before m
     ServiceConfigs: [],
   });
   assert.equal(result.NotebookId, "kaic-new");
+  assert.equal(calls.find((call) => call.operation === "CreateNotebook").variables.ProjectId, 0);
   assert.equal(calls.find((call) => call.operation === "CreateNotebook").variables.AllocationId, "allocation-id");
   assert.equal(closed, 1);
 });
@@ -116,6 +121,7 @@ test("developer create rejects an unavailable EIP before mutation", async () => 
     launchHeadless: async () => ({ spawned: true }),
     closeActiveBrowser: async () => {},
     graphql: async (operation) => {
+      if (operation === "AicpGetAccountAllProjectList") return { AicpGetAccountAllProjectList: { ListProjectResult: { ProjectList: [{ ProjectId: 0, ProjectName: "默认项目" }] } } };
       if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool" }] } };
       if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "queue" }] } };
       if (operation === "DescribleNoUseAddress") return { DescribleNoUseAddress: { AddressesSet: [] } };
@@ -124,6 +130,7 @@ test("developer create rejects an unavailable EIP before mutation", async () => 
   });
   const api = new AicpApi(browser, { region: "region-1" });
   await assert.rejects(() => api.createNotebook({
+    ProjectId: 0,
     ResourcePoolId: "pool",
     QueueName: "queue",
     ImageSource: 0,
@@ -142,6 +149,7 @@ test("developer create rejects an unavailable fixed node before mutation", async
     closeActiveBrowser: async () => {},
     graphql: async (operation) => {
       calls.push(operation);
+      if (operation === "AicpGetAccountAllProjectList") return { AicpGetAccountAllProjectList: { ListProjectResult: { ProjectList: [{ ProjectId: 0, ProjectName: "默认项目" }] } } };
       if (operation === "DescribeAllResourcePool") return { DescribeAllResourcePool: { ResourcePoolSet: [{ ResourcePoolId: "pool" }] } };
       if (operation === "DescribeClusterQueue") return { DescribeClusterQueue: { Queues: [{ Id: "queue-id", Name: "queue" }] } };
       if (operation === "DescribeInstancesByResource") return { DescribeInstancesByResource: { InstanceIps: [{ InstanceIp: "10.0.0.2" }] } };
@@ -151,6 +159,7 @@ test("developer create rejects an unavailable fixed node before mutation", async
   });
   const api = new AicpApi(browser, { region: "region-1" });
   await assert.rejects(() => api.createNotebook({
+    ProjectId: 0,
     ResourcePoolId: "pool",
     QueueName: "queue",
     ImageSource: 0,

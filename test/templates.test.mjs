@@ -8,6 +8,7 @@ test("notebook detail maps to CreateNotebook variables", () => {
     Description: "demo",
     ImageSource: 1,
     ImageId: "image-1",
+    ProjectId: 0,
     ResourcePoolId: "pool-1",
     QueueName: "queue-1",
     GPUType: "GPU-X",
@@ -20,6 +21,7 @@ test("notebook detail maps to CreateNotebook variables", () => {
     Envs: [{ Name: "MODE", Value: "test" }],
   }, "region-1");
   assert.equal(variables.Region, "region-1");
+  assert.equal(variables.ProjectId, 0);
   assert.equal(variables.DisplayName, "dev-a");
   assert.deepEqual(variables.StorageConfigs, [
     { StorageConfigId: "data", MountPath: "/data", StorageConfigType: "DataSet", MountProtocol: "NFS" },

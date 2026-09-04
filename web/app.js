@@ -571,6 +571,7 @@ async function openTrainDetail(selector, name) {
 
 const devDefaults = () => ({
   Region: state.config.region,
+  ProjectId: null,
   DisplayName: "",
   Description: "",
   ImageSource: 0,
@@ -706,6 +707,24 @@ function renderPoolOptions(selectedId = $("#dev-resource-pool").value) {
   const select = $("#dev-resource-pool");
   select.innerHTML = '<option value="">请选择资源组</option>' + pools.map((item) => `<option value="${escapeHtml(item.ResourcePoolId)}">${escapeHtml(item.ResourcePoolName)} · ${escapeHtml(item.ResourcePoolType)}</option>`).join("");
   select.value = selectedId || "";
+}
+
+function renderProjectOptions(selectedId = $("#dev-project").value) {
+  const projects = state.devOptions?.projects ?? [];
+  const select = $("#dev-project");
+  select.innerHTML = '<option value="">请选择项目</option>' + projects
+    .map((item) => `<option value="${escapeHtml(item.ProjectId)}">${escapeHtml(item.ProjectName || `项目 ${item.ProjectId}`)} · ID ${escapeHtml(item.ProjectId)}</option>`).join("");
+  const requested = selectedId === undefined || selectedId === null ? "" : String(selectedId);
+  select.value = projects.some((item) => String(item.ProjectId) === requested) ? requested : "";
+  if (select.value === "" && projects.length) select.value = String(projects[0].ProjectId);
+}
+
+function normalizeDevProject(variables) {
+  const projects = state.devOptions?.projects ?? [];
+  if (!projects.length) return variables;
+  const selected = projects.find((item) => String(item.ProjectId) === String(variables.ProjectId));
+  variables.ProjectId = Number((selected ?? projects[0]).ProjectId);
+  return variables;
 }
 
 function renderRegistryOptions(selectedId = $("#dev-image-registry").value) {
@@ -942,7 +961,8 @@ async function loadDevCreateOptions({ force = false } = {}) {
   try {
     state.devOptions = await api(`/api/dev/create-options?region=${encodeURIComponent(state.config.region)}`);
     status.className = "create-loading ready";
-    status.textContent = `已加载：${state.devOptions.images?.official?.length ?? 0} 个官方镜像、${state.devOptions.images?.personal?.length ?? 0} 个自定义镜像、${state.devOptions.queues?.length ?? 0} 个队列、${state.devOptions.storageConfigs?.length ?? 0} 项存储配置、${state.devOptions.availableAddresses?.length ?? 0} 个可用公网 EIP`;
+    status.textContent = `已加载：${state.devOptions.projects?.length ?? 0} 个项目、${state.devOptions.images?.official?.length ?? 0} 个官方镜像、${state.devOptions.images?.personal?.length ?? 0} 个自定义镜像、${state.devOptions.queues?.length ?? 0} 个队列、${state.devOptions.storageConfigs?.length ?? 0} 项存储配置、${state.devOptions.availableAddresses?.length ?? 0} 个可用公网 EIP`;
+    renderProjectOptions();
     renderPoolOptions();
     renderRegistryOptions();
     renderDevImageOptions();
@@ -1115,6 +1135,7 @@ function fillTrainFields(variables) {
 }
 
 function fillDevFields(variables) {
+  renderProjectOptions(variables.ProjectId);
   $("#dev-description").value = variables.Description || "";
   const imageSource = [0, 1, 2].includes(Number(variables.ImageSource)) ? Number(variables.ImageSource) : 0;
   const radio = $(`input[name="dev-image-source"][value="${imageSource}"]`);
@@ -1174,6 +1195,9 @@ function syncQuickFields() {
   variables[kind === "dev" ? "DisplayName" : "TrainJobName"] = $("#create-name").value.trim();
   if (kind === "dev") {
     variables.Region = state.config.region;
+    const projectId = $("#dev-project").value;
+    if (projectId === "") throw new Error("请选择系统资源所属项目");
+    variables.ProjectId = Number(projectId);
     variables.Description = $("#dev-description").value.trim();
     variables.ImageSource = currentDevImageSource();
     delete variables.ImageId;
@@ -1301,9 +1325,12 @@ async function openCreate(kind, templateName = "") {
       if (requestId !== state.createRequest || state.createKind !== kind) return;
       $("#create-template").value = templateName;
     }
-    if (kind === "dev" && !variables.ResourcePoolId && state.devOptions?.resourcePools?.length) {
-      variables.ResourcePoolId = state.devOptions.resourcePools[0].ResourcePoolId;
-      variables.QueueName = state.devOptions.queues.find((item) => item.ResourcePoolId === variables.ResourcePoolId)?.Name || "";
+    if (kind === "dev") {
+      normalizeDevProject(variables);
+      if (!variables.ResourcePoolId && state.devOptions?.resourcePools?.length) {
+        variables.ResourcePoolId = state.devOptions.resourcePools[0].ResourcePoolId;
+        variables.QueueName = state.devOptions.queues.find((item) => item.ResourcePoolId === variables.ResourcePoolId)?.Name || "";
+      }
     }
     if (kind === "train" && !variables.ResourcePoolId && state.trainOptions?.resourcePools?.length) {
       variables.ResourcePoolId = state.trainOptions.resourcePools[0].ResourcePoolId;
@@ -1328,7 +1355,10 @@ async function loadSelectedTemplate() {
   const name = $("#create-template").value;
   if (!name) {
     const variables = state.createKind === "dev" ? devDefaults() : trainDefaults();
-    if (state.createKind === "dev") await loadDevCreateOptions(); else await loadTrainCreateOptions();
+    if (state.createKind === "dev") {
+      await loadDevCreateOptions();
+      normalizeDevProject(variables);
+    } else await loadTrainCreateOptions();
     if (requestId !== state.templateRequest || $("#create-template").value) return;
     updateJson(variables);
     fillQuickFields(variables);
@@ -1337,7 +1367,10 @@ async function loadSelectedTemplate() {
   try {
     const kind = state.createKind;
     const record = await api(`/api/template?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}`);
-    if (kind === "dev") await loadDevCreateOptions(); else await loadTrainCreateOptions();
+    if (kind === "dev") {
+      await loadDevCreateOptions();
+      normalizeDevProject(record.variables);
+    } else await loadTrainCreateOptions();
     if (requestId !== state.templateRequest || state.createKind !== kind || $("#create-template").value !== name) return;
     updateJson(record.variables);
     fillQuickFields(record.variables);

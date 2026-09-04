@@ -437,7 +437,7 @@ aicp gui --port 18080
 
 点击“新建开发机”后，可配置：
 
-- 基本信息与描述。
+- 基本信息、描述与系统资源所属项目。
 - 官方、自定义或第三方镜像。
 - 资源组、开发队列、CPU、内存、GPU 与固定节点。
 - KPFS/KS3 挂载、容器内路径和协议。
@@ -542,6 +542,8 @@ aicp dev list --mine --json
 ```
 
 从完整 JSON 参数文件创建。建议先检查，再提交：
+
+`ProjectId` 为必填数值；可视化界面会读取当前账号可用项目并自动选中第一项，命令行 JSON 或模板需显式提供（默认项目通常为 `0`）。
 
 ```bash
 aicp dev create --file ./examples/dev-create.json --dry-run

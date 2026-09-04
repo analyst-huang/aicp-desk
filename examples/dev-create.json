@@ -1,5 +1,6 @@
 {
   "Region": "cn-northwest-3",
+  "ProjectId": 0,
   "DisplayName": "my-new-dev",
   "Description": "通过 AICP Desk 创建",
   "ImageSource": 1,

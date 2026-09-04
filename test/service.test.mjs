@@ -202,12 +202,16 @@ test("prepare train variables applies nested overrides", async () => {
 test("developer create validation requires a selectable native-form configuration", async () => {
   const service = makeService();
   await assert.rejects(() => service.prepareCreateVariables("dev", {
-    variables: { DisplayName: "dev", ResourcePoolId: "pool", QueueName: "queue", CpuNum: 8, Memory: 16, StorageConfigs: [], ServiceConfigs: [], Envs: [] },
+    variables: { DisplayName: "dev", ProjectId: 0, ResourcePoolId: "pool", QueueName: "queue", CpuNum: 8, Memory: 16, StorageConfigs: [], ServiceConfigs: [], Envs: [] },
   }), /请选择官方镜像/);
-  const variables = await service.prepareCreateVariables("dev", {
+  await assert.rejects(() => service.prepareCreateVariables("dev", {
     variables: { DisplayName: "dev", ImageSource: 0, ImageId: "image", ResourcePoolId: "pool", QueueName: "queue", CpuNum: 8, Memory: 16, StorageConfigs: [], ServiceConfigs: [], Envs: [] },
+  }), /ProjectId/);
+  const variables = await service.prepareCreateVariables("dev", {
+    variables: { DisplayName: "dev", ProjectId: "0", ImageSource: 0, ImageId: "image", ResourcePoolId: "pool", QueueName: "queue", CpuNum: 8, Memory: 16, StorageConfigs: [], ServiceConfigs: [], Envs: [] },
   });
   assert.equal(variables.Region, "region-1");
+  assert.equal(variables.ProjectId, 0);
   assert.equal(variables.ImageId, "image");
 });
 
