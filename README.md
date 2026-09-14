@@ -160,7 +160,7 @@ aicp session --check   # 仅检查，不自动提交登录表单
 aicp login --auto      # 显式启用/重试自动登录；JSON 输出，未认证时退出码为 1
 ```
 
-`requiresUserAction` 表示需要处理验证码、未填充的登录资料、账号变化或其他页面交互；`authenticationCode` 提供具体原因。一次恢复最多提交一次密码、点击一次可选“跳过”，失败结果冷却 60 秒，同一 profile 的并发进程串行恢复。写操作发送前会验证身份；若写操作发出后才发生认证错误，恢复会话后返回 `OPERATION_NOT_RETRIED`，要求先查询操作结果，避免重复执行。
+`requiresUserAction` 表示需要处理验证码、未填充的登录资料、账号变化或其他页面交互；`authenticationCode` 提供具体原因。一次恢复最多提交一次密码、点击一次可选“跳过”，失败结果冷却 60 秒，同一 profile 的并发进程串行恢复。恢复锁记录所属主机和 PID；本机持锁进程退出后立即回收，活跃锁最多等待 10 秒后返回 LOGIN_BUSY，不再等待 5 分钟的过期时间。写操作发送前会验证身份；若写操作发出后才发生认证错误，恢复会话后返回 `OPERATION_NOT_RETRIED`，要求先查询操作结果，避免重复执行。
 
 `aicp logout` 会暂停自动登录，避免清除会话后马上又登录；用 `aicp login` 或 `aicp login --auto` 重新启用。无头 Edge 或未解锁的系统密码管理器不保证自动填充，遇到这种情况使用桌面/远端登录窗口选择保存的资料。专用 Edge 与日常浏览器的 profile 不共享。
 
@@ -368,6 +368,8 @@ aicp login --remote-ui --web-port 16080 --vnc-port 15900 --display :109 --yes
 > 如果 `authenticated: true`，直接继续原任务。工具会复用专用 Edge 已保存且可自动填充的登录资料，并在金山云提供可见、可用的“跳过”入口时完成可选校验。不要预设手机验证码必填，不要要求用户先确认登录完成。
 >
 > 只有 `requiresUserAction: true` 时，才根据具体错误打开登录窗口并告诉用户需要处理的具体步骤。本地用 `aicp login --yes`，无桌面远端用 `aicp login --remote-ui --yes`；如命令已经返回 `authenticated: true`，立即继续。用户处理后重新运行 `aicp session` 实际验证。
+>
+> 为 `session` / `login --auto` 预留至少 120 秒命令等待时间，避免短超时中断浏览器恢复。`aicp session --check` 返回的 `lastRecovery` 保留最近恢复的阶段和结果，人工登录后也不会清除；诊断应报告 `outcome`、`stage` 和 `code`。
 >
 > `BROWSER_OR_NETWORK_ERROR`、`LOGIN_BUSY`、启动超时、端口不可达或网络错误，应先检查运行主机、`AICP_HOME`、浏览器进程、网络和执行环境的沙箱限制；这些错误不证明登录失效。需要时通过执行环境正常的权限申请机制连接本机浏览器，不要让用户反复登录。
 >
@@ -741,6 +743,7 @@ AICP_HOME=/secure/path/aicp aicp session
 - `config.json`：区域、用户名、端口等本地设置。
 - `templates/`：开发机和训练任务模板。
 - `edge-profile/`：独立 Edge 登录资料和 Edge 保存的密码。
+- `login-state.json.recovery.json`：最近自动恢复的阶段、结果与错误码；不含密码、验证码或 Cookie。
 - `login-state.json`：最近验证的账号标识、IAM 主账号提示、自动登录暂停状态和失败冷却；不含密码或验证码。
 - `edge-config/`：AICP 专用且可写的 Edge/Crashpad 配置；`logout --forget` 时删除。
 - `remote-ui.json`：远端画面进程与端口；普通 `remote-ui stop` 会保留其中的 Xvfb 会话宿主记录，`stop --all` 后删除。

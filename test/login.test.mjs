@@ -193,3 +193,19 @@ test("autofilled different account is not submitted", () => {
   assert.equal(page.run({ expectedUsername: "bob" }).state, "account_selection_required");
   assert.deepEqual(page.counts(), [0, 0]);
 });
+
+test("manual authentication retains the last recovery failure and stage", async (t) => {
+  const browser = await session(t);
+  browser.performLoginRecovery = async () => {
+    await browser.recoveryProgress({ stage: "credentials_missing" });
+    throw new LoginError("LOGIN_CREDENTIALS_REQUIRED", "missing", true);
+  };
+  await assert.rejects(browser.recoverLogin(), { code: "LOGIN_CREDENTIALS_REQUIRED" });
+  await browser.rememberIdentity(identity);
+  await browser.enableAutoLogin();
+  const { readFile } = await import("node:fs/promises");
+  const record = JSON.parse(await readFile(`${browser.authStatePath}.recovery.json`, "utf8"));
+  assert.equal(record.outcome, "failed");
+  assert.equal(record.stage, "credentials_missing");
+  assert.equal(record.code, "LOGIN_CREDENTIALS_REQUIRED");
+});
