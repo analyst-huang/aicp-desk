@@ -124,7 +124,7 @@ function renderSession() {
   } else {
     badge.classList.remove("ready");
     badge.innerHTML = "<i></i>尚未登录";
-    detail.textContent = "尚未建立登录会话。点击登录后，请在独立 Edge 中完成手机验证码。";
+    detail.textContent = "尚未建立登录会话。点击登录后，按专用 Edge 页面实际要求完成首次登录。";
   }
 }
 
@@ -134,11 +134,10 @@ async function refreshSession() {
 }
 
 async function login(button) {
-  if (!window.confirm("将打开一个仅监听本机的独立 Edge 登录窗口。请只在窗口中输入账号和验证码。继续吗？")) return;
-  setBusy(button, true, "正在打开…");
+  setBusy(button, true, "正在恢复登录…");
   try {
-    await api("/api/login", { method: "POST", body: "{}" });
-    toast("登录窗口已打开。首次登录可让 Edge 保存密码；完成 MFA 后可关闭窗口。", "success");
+    const result = await api("/api/login", { method: "POST", body: "{}" });
+    toast(result.authenticated ? "登录已验证，可以继续使用" : result.authenticationError || "请在专用 Edge 中完成剩余登录步骤", result.authenticated ? "success" : "info");
     await refreshSession();
   } catch (error) {
     toast(error.message, "error");

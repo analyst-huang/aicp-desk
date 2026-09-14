@@ -238,7 +238,7 @@ test("browser requests use a shared reference-counted session lease", () => {
 
 test("platform empty-token errors are reported as an expired login", () => {
   assert.match(source, /UserTokenEmpty/);
-  assert.match(source, /登录状态已过期/);
+  assert.match(source, /throw expiredSession\(\)/);
 });
 
 test("a stale passport tab requires a successful identity probe before using a restored console tab", () => {
@@ -251,6 +251,7 @@ test("a stale passport tab requires a successful identity probe before using a r
 test("current-user probe exposes only authenticated identity fields", async () => {
   const browser = new BrowserSession({ debugPort: 9337 });
   browser.withBrowser = async (callback) => callback();
+  browser.rememberIdentity = async () => {};
   browser.waitForConsoleTarget = async () => ({ webSocketDebuggerUrl: "ws://example" });
   browser.evaluate = async () => ({
     status: 200,
@@ -305,4 +306,10 @@ test("ordinary remote UI stop keeps Xvfb while the all mode can fully terminate 
   assert.match(remoteUiSource, /if \(record\.name === "xvfb"\) continue/);
   assert.match(remoteUiSource, /accessStopped: true/);
   assert.match(remoteUiSource, /resumed: resuming/);
+});
+
+test("GraphQL trace IDs are generated in Node for remote browser compatibility", () => {
+  assert.match(source, /traceId: randomUUID\(\)/);
+  assert.match(source, /"x-trace-id": request\.traceId/);
+  assert.doesNotMatch(source, /"x-trace-id": crypto\.randomUUID/);
 });

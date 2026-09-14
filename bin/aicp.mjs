@@ -19,7 +19,8 @@ Agent
   aicp --agent-instructions             输出供 Agent 遵循的使用与训练实验授权说明
 
 登录与界面
-  aicp login [--yes]                   打开独立 Edge，手动完成 MFA
+  aicp login [--yes]                   打开独立 Edge，优先自动恢复登录
+  aicp login --auto                    复用已保存登录资料，输出结构化结果
   aicp login remote-ui [--web-port 6080] [--vnc-port 5900]
              [--display :99] [--web-root PATH] [--yes]
                                         在 Linux 无显示器服务器启动可转发登录界面
@@ -35,7 +36,7 @@ Agent
   aicp remote-ui stop --all [--yes]     连同 Edge/Xvfb 完全关闭（会话 Cookie 会失效）
   aicp logout [--yes]                  清除会话，保留 Edge 已保存的账号密码
   aicp logout --forget [--yes]         删除全部登录资料（包括已保存密码）
-  aicp session                         验证登录 Cookie，并显示当前 IAM 用户
+  aicp session [--check]               验证登录 Cookie，默认自动恢复；--check 仅检查
   aicp gui [--no-open] [--port 17863]  启动可视化控制台
 
 GPU 容量
@@ -553,6 +554,12 @@ async function main() {
   const context = await createContext();
   if (group === "login") {
     const { positionals, options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
+    if (options.auto) {
+      const result = await context.browser.autoLogin();
+      print(result, true);
+      if (!result.authenticated) process.exitCode = 1;
+      return;
+    }
     const remoteUi = Boolean(options["remote-ui"]) || positionals.includes("remote-ui");
     const approved = await confirmAction(
       remoteUi
@@ -580,14 +587,12 @@ async function main() {
       }
       print({ remoteUi: status, browser }, true);
       printRemoteUiAccess(status);
-      if (status.resumed && browser.alreadyRunning) {
-        return print("远端 VNC 入口已恢复，并继续使用原来的 Edge 登录会话，无需重新 MFA。");
-      }
-      return print("请在 VS Code 的“端口”面板转发上面的网页端口，然后打开登录地址完成 MFA。完成后可运行 aicp remote-ui stop --yes 关闭 VNC 入口并保留后台登录会话。");
+      if (browser.authenticated) return print("登录已验证，可继续执行任务；运行 aicp remote-ui stop --yes 可关闭 VNC 入口并保留后台会话。");
+      return print(browser.authenticationError || "请转发上面的网页端口，按登录页面实际要求完成剩余步骤，然后运行 aicp session 验证。");
     }
     const result = await context.browser.launchLogin();
     print(result, true);
-    return print("请在独立 Edge 中完成 MFA；首次登录可选择让 Edge 保存密码，之后通常只需输入新的手机验证码。", false);
+    return print(result.authenticated ? "登录已验证，可继续执行任务。" : result.authenticationError || "请在专用 Edge 中完成剩余登录步骤；仅当平台要求时输入验证码。", false);
   }
   if (group === "remote-ui") {
     const remoteAction = action || "status";
@@ -653,7 +658,10 @@ async function main() {
     if (!approved) return print("已取消");
     return print(await context.browser.logout({ forget }), true);
   }
-  if (group === "session") return print(await context.browser.status(), true);
+  if (group === "session") {
+    const { options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
+    return print(await context.browser.status({ autoLogin: !options.check }), true);
+  }
   if (group === "gpu") return handleGpu(context, [action, ...rest].filter((item) => item !== undefined));
   if (group === "image") return handleImage(context, action, rest);
   if (group === "dev") return handleDev(context, action, rest);
@@ -671,6 +679,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`错误：${error.message}\n`);
+  process.stderr.write(`错误${error.code ? ` [${error.code}]` : ""}：${error.message}\n`);
   process.exitCode = 1;
 });

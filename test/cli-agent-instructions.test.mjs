@@ -23,3 +23,11 @@ test("--help advertises the agent instructions option", () => {
   assert.match(cliSource, /aicp --agent-instructions/);
   assert.match(cliSource, /训练实验授权说明/);
 });
+
+test("agent instructions try automatic login before requesting user input", () => {
+  for (const value of ["requiresUserAction", "authenticationCode", "aicp login --auto", "session --check", "BROWSER_OR_NETWORK_ERROR", "OPERATION_NOT_RETRIED"]) {
+    assert.ok(AGENT_INSTRUCTIONS.includes(value));
+  }
+  assert.doesNotMatch(AGENT_INSTRUCTIONS, /登录和 MFA 必须由用户本人/);
+  assert.match(AGENT_INSTRUCTIONS, /不要预设手机验证码必填/);
+});

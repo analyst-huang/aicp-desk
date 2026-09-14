@@ -18,8 +18,8 @@ AICP Desk 是一个运行在本机的金山云星流（AICP）控制工具，同
 - 状态自动刷新：开发机、训练任务和 GPU 容量页面每 10 秒后台刷新当前可见页面，切回页面时立即补刷；手动刷新仍然保留。
 - 原生创建选项：实时读取当前区域的镜像、资源组、开发/训练队列、GPU、存储、EIP 和 KCR 配置。
 - 可编辑模板：选择模板后会回填完整创建页面，可继续做少量或大幅修改；只有明确点击保存时才会更新模板。
-- 登录资料复用：使用独立 Microsoft Edge 配置；会话过期后通常只需重新输入手机验证码。
-- 无显示器远端登录：Linux 服务器可自动启动 Xvfb、x11vnc 和 noVNC，在本地浏览器完成服务器侧 Edge 的手机验证。
+- 登录资料复用：使用独立 Microsoft Edge 配置；会话过期后先自动尝试使用 Edge 已保存的账号密码重新登录，只有实际需要交互时才提示用户。
+- 无显示器远端登录：Linux 服务器可自动启动 Xvfb、x11vnc 和 noVNC，在需要交互时，通过本地浏览器完成服务器侧 Edge 的登录步骤。
 - 安全防护：写操作需要确认，CLI 支持先用 `--dry-run` 检查最终参数；敏感字段默认隐藏。
 
 ## 系统要求
@@ -141,7 +141,7 @@ macOS/Linux 可使用：
 aicp login
 ```
 
-命令会打开一个仅供 AICP Desk 使用的独立 Edge 窗口。请在金山云页面中输入账号、密码和手机验证码；工具本身不会读取这些内容。
+命令会打开一个仅供 AICP Desk 使用的独立 Edge 窗口，并尝试恢复登录。首次使用时在金山云页面输入账号密码；只有平台实际要求时才需要验证码。自动恢复使用浏览器已填充的表单及网站原有登录按钮，不导出密码或验证码。
 
 首次登录时可以接受 Edge 的“保存密码”提示。账号和密码由 Edge 密码管理器保存，并受 Windows 账户、macOS 钥匙串或 Linux 桌面密钥环保护。手机验证码不会保存。
 
@@ -152,6 +152,18 @@ aicp session
 ```
 
 `session` 会调用金山云的轻量用户接口实际验证 Cookie，并输出 `authenticated`、当前 IAM `username` 和 `userId`；浏览器进程或 profile 存在不再被当成已登录。
+
+会话过期时会自动尝试恢复：复用专用 Edge → 使用已填充的账号密码提交登录 → 如有官方可用的“跳过”入口则继续 → 验证身份后继续请求。主账号和 IAM 密码表单均支持；IAM 主账号字段在工具成功提交后会作为非密码的登录提示保存。不会读取 Edge 密码数据库，也不会把密码写入配置或日志。
+
+```bash
+aicp session --check   # 仅检查，不自动提交登录表单
+aicp login --auto      # 显式启用/重试自动登录；JSON 输出，未认证时退出码为 1
+```
+
+`requiresUserAction` 表示需要处理验证码、未填充的登录资料、账号变化或其他页面交互；`authenticationCode` 提供具体原因。一次恢复最多提交一次密码、点击一次可选“跳过”，失败结果冷却 60 秒，同一 profile 的并发进程串行恢复。写操作发送前会验证身份；若写操作发出后才发生认证错误，恢复会话后返回 `OPERATION_NOT_RETRIED`，要求先查询操作结果，避免重复执行。
+
+`aicp logout` 会暂停自动登录，避免清除会话后马上又登录；用 `aicp login` 或 `aicp login --auto` 重新启用。无头 Edge 或未解锁的系统密码管理器不保证自动填充，遇到这种情况使用桌面/远端登录窗口选择保存的资料。专用 Edge 与日常浏览器的 profile 不共享。
+
 
 清除 Cookie、保留 Edge 已保存的账号密码：
 
@@ -310,9 +322,9 @@ ssh -N -L 6080:127.0.0.1:6080 USER@SERVER
 
 然后在本地浏览器打开终端打印的登录地址。SSH 使用了不同本地端口时，把 URL 中的 `6080` 改为对应本地端口。
 
-### 4. 人工完成 MFA，然后关闭远端画面
+### 4. 验证登录，必要时处理页面提示
 
-在 noVNC 页面中输入账号、密码和新的手机验证码。首次登录可以接受 Edge 的“保存密码”提示。确认登录成功后，在远端终端验证真实接口并停止画面服务：
+登录命令会先尝试自动恢复。只有结果中的 `requiresUserAction` 为 `true` 时，才需要在 noVNC 页面处理未填充的登录资料或平台要求的验证。首次登录可让 Edge 保存密码。成功后验证真实接口并停止画面服务：
 
 ```bash
 aicp dev list --mine
@@ -321,7 +333,7 @@ aicp remote-ui stop --yes
 
 `stop` 默认只关闭 noVNC、x11vnc 和窗口管理器，网页端口随即不可访问；后台 Edge 与 Xvfb 会继续运行。金山云的核心认证 Cookie 属于浏览器会话 Cookie，必须保留 Edge 进程才能继续使用，因此之后 `aicp dev ...`、`aicp train ...`、`aicp gpu` 等命令可以直接复用当前登录态。再次执行 `aicp login --remote-ui --yes` 会恢复 VNC 入口并显示原窗口，不需要重新登录。
 
-需要释放全部后台进程时使用下面的命令。它会关闭 Edge 和 Xvfb，当前金山云会话 Cookie 随之失效，下次需要重新完成手机验证码：
+需要释放全部后台进程时使用下面的命令。它会关闭 Edge 和 Xvfb，当前金山云会话 Cookie 随之失效，下次会先尝试用已保存的登录资料恢复会话：
 
 ```bash
 aicp remote-ui stop --all --yes
@@ -335,7 +347,7 @@ aicp gui --no-open --port 17863
 
 再用 VS Code 转发它打印的 `17863` 端口。登录 noVNC 的 `6080` 只在人工登录时需要；日常 GUI 使用的是独立的 `17863`。
 
-会话过期后重新执行 `aicp login --remote-ui --yes`。用户名和密码通常会由 Edge 自动填充，只需输入新的手机验证码。查看或找回启动时打印的端口：
+会话过期后，`aicp session` 和业务命令会自动尝试恢复登录。只有自动恢复结果要求用户介入时，再执行 `aicp login --remote-ui --yes` 打开远端画面。手机验证码并非固定必需步骤。查看画面服务端口：
 
 ```bash
 aicp remote-ui status
@@ -349,21 +361,31 @@ aicp login --remote-ui --web-port 16080 --vnc-port 15900 --display :109 --yes
 
 ### 5. 远端 Agent 可直接执行的流程
 
-Agent 可以负责安装、启动和验证，但手机验证码必须由用户本人在转发页面中输入。建议给 Agent 以下顺序：
+下面这段提示可直接交给 Agent（本地与远端均适用）：
+
+> 使用 AICP 时，先运行 `aicp session`，读取 JSON 中的 `authenticated`、`authenticationCode` 和 `requiresUserAction`。该命令已经包含一次受限的自动登录恢复；会话过期不等于需要用户登录。
+>
+> 如果 `authenticated: true`，直接继续原任务。工具会复用专用 Edge 已保存且可自动填充的登录资料，并在金山云提供可见、可用的“跳过”入口时完成可选校验。不要预设手机验证码必填，不要要求用户先确认登录完成。
+>
+> 只有 `requiresUserAction: true` 时，才根据具体错误打开登录窗口并告诉用户需要处理的具体步骤。本地用 `aicp login --yes`，无桌面远端用 `aicp login --remote-ui --yes`；如命令已经返回 `authenticated: true`，立即继续。用户处理后重新运行 `aicp session` 实际验证。
+>
+> `BROWSER_OR_NETWORK_ERROR`、`LOGIN_BUSY`、启动超时、端口不可达或网络错误，应先检查运行主机、`AICP_HOME`、浏览器进程、网络和执行环境的沙箱限制；这些错误不证明登录失效。需要时通过执行环境正常的权限申请机制连接本机浏览器，不要让用户反复登录。
+>
+> `aicp login --auto` 可在主动退出后重新启用自动登录，或在已经解决问题后显式重试；不要循环运行它来绕过失败冷却。`aicp session --check` 仅验证，不提交登录表单。不要修改账号安全设置或处理强制验证码来强行恢复登录。
+>
+> 遇到 `OPERATION_NOT_RETRIED`、超时或写操作结果不明确，先查询云端资源状态，再决定是否重试；不要直接重复创建、启动、停止或删除任务。遇到 `LOGIN_ACCOUNT_CHANGED`，确认实际账号后再继续。
+
+远端首次安装仍需按以下顺序准备环境：
 
 ```bash
-# 在克隆的仓库中执行；普通用户与容器 root 使用同一组命令
 ./install.sh --no-shortcut
 export PATH="$HOME/.local/bin:$PATH"
 aicp remote-ui install --yes
-
-# 不修改云端资源的检查
 aicp remote-ui doctor
-
-# 启动后，把命令打印的“VS Code 转发端口”和登录地址报告给用户，然后等待用户确认登录完成
+aicp session
+# 仅当需要建立或操作远端登录窗口时：
 aicp login --remote-ui --yes
-
-# 用户确认后再验证；不要替用户输入或记录验证码
+# authenticated 为 true 后直接执行，不必等待用户口头确认：
 aicp dev list --mine
 aicp remote-ui stop --yes
 ```
@@ -374,7 +396,7 @@ Agent 不应读取、复制、上传或提交 `AICP_HOME` 下的 `edge-profile/`
 
 ### 密码存储与安全边界
 
-带桌面的 Linux 通常由 Edge 使用 Gnome Keyring 或 KWallet 保护密码（参见 [Microsoft Edge 密码管理器安全说明](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-security-password-manager-security)）；纯命令行服务器通常没有可解锁的桌面密钥环。为确保无显示器模式能读取可选保存的账号密码，AICP Desk 会让该专用 Edge 配置一致使用 Chromium 的 `basic` 密码存储模式。金山云的当前认证 Cookie 是会话级数据，所以 `remote-ui stop` 会保留后台 Edge；`stop --all` 后仍能自动填充密码，但需要重新输入手机验证码。
+带桌面的 Linux 通常由 Edge 使用 Gnome Keyring 或 KWallet 保护密码（参见 [Microsoft Edge 密码管理器安全说明](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-security-password-manager-security)）；纯命令行服务器通常没有可解锁的桌面密钥环。为确保无显示器模式能读取可选保存的账号密码，AICP Desk 会让该专用 Edge 配置一致使用 Chromium 的 `basic` 密码存储模式。金山云的当前认证 Cookie 是会话级数据，所以 `remote-ui stop` 会保留后台 Edge；`stop --all` 后是否能自动恢复，取决于 Edge 能否自动填充完整登录资料以及平台当前验证要求。
 
 这比桌面密钥环保护弱：安全性主要依赖 Linux 用户权限、服务器磁盘和 `AICP_HOME` 目录权限。只在受信任的专用账号下使用，建议启用磁盘加密并执行：
 
@@ -382,7 +404,7 @@ Agent 不应读取、复制、上传或提交 `AICP_HOME` 下的 `edge-profile/`
 chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 ```
 
-如果服务器为多人共用或不允许在磁盘保存密码，请不要接受 Edge 的“保存密码”提示；Cookie 仍会保留，但重新登录时需要再次输入密码和手机验证码。运行 `aicp logout --forget --yes` 会删除整个专用 Edge 配置和其中保存的密码。
+如果服务器为多人共用或不允许在磁盘保存密码，请不要接受 Edge 的“保存密码”提示；Cookie 仍会保留，但重新登录时需要再次输入密码，并按平台实际要求完成验证。运行 `aicp logout --forget --yes` 会删除整个专用 Edge 配置和其中保存的密码。
 
 ### 常见问题
 
@@ -403,7 +425,7 @@ chmod 700 "${AICP_HOME:-$HOME/.local/state/aicp-cli}"
 | 登录页面是黑屏或进程不完整 | 运行 `aicp remote-ui stop --all --yes`，确认 `doctor` 通过后重新启动。 |
 | VS Code 没自动弹出转发提示 | 在“端口 / Ports”面板手动添加命令打印的“VS Code 转发端口”。 |
 | 服务器是 ARM64 | Edge Linux 当前没有对应服务器安装包；请改用 amd64 服务器。 |
-| `remote-ui stop` 后 Agent 提示登录过期 | 升级到 v0.13.7；默认 `stop` 会保留后台 Edge/Xvfb。只有 `stop --all`、容器重启或真实会话过期后才需要重新完成手机验证码。 |
+| `remote-ui stop` 后 Agent 提示登录过期 | 先运行 `aicp session` 自动检查和恢复。默认 `stop` 保留 Edge/Xvfb；浏览器启动超时应检查执行环境、端口和沙箱限制，不能直接认定用户需要重新登录。 |
 
 ## GUI 用法
 
@@ -719,6 +741,7 @@ AICP_HOME=/secure/path/aicp aicp session
 - `config.json`：区域、用户名、端口等本地设置。
 - `templates/`：开发机和训练任务模板。
 - `edge-profile/`：独立 Edge 登录资料和 Edge 保存的密码。
+- `login-state.json`：最近验证的账号标识、IAM 主账号提示、自动登录暂停状态和失败冷却；不含密码或验证码。
 - `edge-config/`：AICP 专用且可写的 Edge/Crashpad 配置；`logout --forget` 时删除。
 - `remote-ui.json`：远端画面进程与端口；普通 `remote-ui stop` 会保留其中的 Xvfb 会话宿主记录，`stop --all` 后删除。
 - `remote-ui-profile.json`：标记无显示器服务器使用的密码存储模式；`logout --forget` 时删除。
