@@ -153,7 +153,7 @@ aicp session
 
 `session` 会调用金山云的轻量用户接口实际验证 Cookie，并输出 `authenticated`、当前 IAM `username` 和 `userId`；浏览器进程或 profile 存在不再被当成已登录。
 
-会话过期时会自动尝试恢复：复用专用 Edge → 使用已填充的账号密码提交登录 → 如有官方可用的“跳过”入口则继续 → 验证身份后继续请求。主账号和 IAM 密码表单均支持；IAM 主账号字段在工具成功提交后会作为非密码的登录提示保存。不会读取 Edge 密码数据库，也不会把密码写入配置或日志。
+会话过期时会自动尝试恢复：复用专用 Edge → 按缺失字段选择保存的资料（含 Saved info 中的 IAM 主账号）→ 检查账号后提交登录 → 如有官方可用的“跳过”入口则继续 → 验证身份后继续请求。主账号和 IAM 密码表单均支持；IAM 主账号优先使用已有提示；缺失时只读查询 Edge Saved info 的 account_id 字段，仅有一个候选时自动填入，多候选不猜测。该非密码提示在工具提交后保存。不会读取 Edge 密码数据库，也不会把密码写入配置或日志。
 
 ```bash
 aicp session --check   # 仅检查，不自动提交登录表单
@@ -365,7 +365,7 @@ aicp login --remote-ui --web-port 16080 --vnc-port 15900 --display :109 --yes
 
 > 使用 AICP 时，先运行 `aicp session`，读取 JSON 中的 `authenticated`、`authenticationCode` 和 `requiresUserAction`。该命令已经包含一次受限的自动登录恢复；会话过期不等于需要用户登录。
 >
-> 如果 `authenticated: true`，直接继续原任务。工具会复用专用 Edge 已保存且可自动填充的登录资料，并在金山云提供可见、可用的“跳过”入口时完成可选校验。不要预设手机验证码必填，不要要求用户先确认登录完成。
+> 如果 `authenticated: true`，直接继续原任务。工具会复用专用 Edge 的保存资料，并分别尝试选择缺失的 IAM 主账号（Saved info）、用户名和密码，并在金山云提供可见、可用的“跳过”入口时完成可选校验。不要预设手机验证码必填，不要要求用户先确认登录完成。
 >
 > 只有 `requiresUserAction: true` 时，才根据具体错误打开登录窗口并告诉用户需要处理的具体步骤。本地用 `aicp login --yes`，无桌面远端用 `aicp login --remote-ui --yes`；如命令已经返回 `authenticated: true`，立即继续。用户处理后重新运行 `aicp session` 实际验证。
 >

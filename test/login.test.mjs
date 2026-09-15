@@ -14,6 +14,7 @@ async function session(t) {
   t.after(() => rm(home, { recursive: true, force: true }));
   const browser = new BrowserSession({ debugPort: 9337, consoleUrl: consolePage.url });
   browser.paths.home = home;
+  browser.paths.browserProfile = path.join(home, "edge-profile");
   browser.authStatePath = path.join(home, "login-state.json");
   browser.withBrowser = async (callback) => callback();
   browser.waitForConsoleTarget = browser.waitForAicpTarget = async () => consolePage;
@@ -28,7 +29,7 @@ function fixture({ missing = false, challenge = false, skip = false, error = fal
     location: { origin, pathname: "/iframe-login-iam.html" },
     defaultView: { getComputedStyle: () => ({ display: "block", visibility: "visible" }), Event: class {} },
     documentElement: { dataset: {} }, getElementById: (id) => elements[id],
-    querySelectorAll: (selector) => selector === ".input-message-wrap" && error ? [element("bad password")] : [],
+    querySelectorAll: (selector) => selector === ".input-message-wrap" && error ? [element(typeof error === "string" ? error : "bad password")] : [],
   };
   function element(value = "", visible = true, click = () => {}) {
     return { value, textContent: value, ownerDocument: doc, disabled: false, getClientRects: () => visible ? [{}] : [], getBoundingClientRect: () => ({ left: 0, top: 0, width: 10, height: 10 }), click, dispatchEvent() {} };
@@ -48,8 +49,29 @@ test("saved password submits once and never leaves page", () => {
   const page = fixture(), result = page.run();
   assert.equal(result.state, "submitted");
   assert.equal(JSON.stringify(result).includes("fixture-password"), false);
-  assert.equal(page.run().state, "waiting");
+  assert.equal(page.run({ submitted: true }).state, "waiting");
   assert.deepEqual(page.counts(), [1, 0]);
+});
+test("old submit marker is distinguished from the current bounded attempt", () => {
+  const page = fixture({ error: true });
+  page.doc.documentElement.dataset.aicpPasswordSubmitted = "true";
+  assert.equal(page.run().state, "stale_submission");
+  assert.equal(page.run({ submitted: true }).state, "login_failed");
+  assert.deepEqual(page.counts(), [0, 0]);
+});
+test("retry replaces an old submitted page once before recovering", async (t) => {
+  const browser = await session(t); let created = 0, steps = 0;
+  const fresh = { ...passportPage, id: "fresh" };
+  browser.targets = async () => steps >= 2 ? [consolePage] : [passportPage, ...(created ? [fresh] : [])];
+  browser.createPage = async () => { created++; return fresh.id; };
+  browser.evaluate = async (target) => {
+    steps++;
+    assert.equal(target.id, steps === 1 ? "login" : "fresh");
+    return { state: steps === 1 ? "stale_submission" : "submitted" };
+  };
+  browser.fetchCurrentUser = async () => identity;
+  assert.deepEqual(await browser.performLoginRecovery({ identity }, { interval: 0 }), identity);
+  assert.equal(created, 1);
 });
 test("official optional skip precedes visible MFA and is clicked once", () => {
   const page = fixture({ challenge: true, skip: true });
@@ -66,6 +88,51 @@ test("IAM parent-account hint fills only the missing parent field", () => {
   assert.equal(page.run().state, "credentials_missing");
   assert.equal(page.run({ accountId: "remembered-parent" }).state, "submitted");
   assert.equal(page.elements.account_id.value, "remembered-parent");
+});
+test("required-parent blur error can be corrected before a submit", () => {
+  const page = fixture({ error: "请输入主账号" }); page.elements.account_id.value = "";
+  assert.equal(page.run().field, "account_id");
+  assert.equal(page.run({ accountId: "parent" }).state, "submitted");
+  assert.equal(page.run({ submitted: true }).state, "login_failed");
+  assert.deepEqual(page.counts(), [1, 0]);
+});
+test("missing IAM parent targets Saved info, with no credential values returned", () => {
+  const page = fixture(); page.elements.account_id.value = "";
+  page.elements.account_id.getBoundingClientRect = () => ({ left: 20, top: 30, width: 40, height: 10 });
+  const result = page.run({ expectedUsername: "alice" });
+  assert.equal(result.field, "account_id");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.focus)), { x: 40, y: 35 });
+  assert.deepEqual(Array.from(result.missingFields), ["account_id"]);
+  assert.deepEqual(page.counts(), [0, 0]);
+  page.elements.account_id.value = "saved-parent";
+  assert.equal(page.run({ expectedUsername: "alice" }).state, "submitted");
+});
+test("missing fields progress individually and empty username can be filled", () => {
+  const page = fixture({ missing: true }); page.elements.username.value = ""; page.elements.account_id.value = "";
+  assert.equal(page.run({ expectedUsername: "alice" }).field, "account_id");
+  page.elements.account_id.value = "parent";
+  assert.equal(page.run({ expectedUsername: "alice" }).field, "username");
+  page.elements.username.value = "alice";
+  assert.equal(page.run({ expectedUsername: "alice" }).field, "password");
+  assert.deepEqual(page.counts(), [0, 0]);
+});
+test("different saved username stops before selecting missing parent", () => {
+  const page = fixture(); page.elements.account_id.value = "";
+  assert.equal(page.run({ expectedUsername: "bob" }).state, "account_selection_required");
+  assert.deepEqual(page.counts(), [0, 0]);
+});
+test("recovery selects each missing field at most once and verifies the result", async (t) => {
+  const browser = await session(t); await browser.rememberIdentity(identity);
+  const selected = []; let step = 0;
+  browser.targets = async () => step >= 4 ? [consolePage] : [passportPage];
+  browser.evaluate = async () => ++step < 4
+    ? { state: "credentials_missing", field: step < 3 ? "account_id" : "password", focus: { x: 10, y: 20 } }
+    : { state: "submitted", accountId: "parent" };
+  browser.focusLoginField = async () => selected.push(step);
+  browser.fetchCurrentUser = async () => identity;
+  assert.deepEqual(await browser.performLoginRecovery({ identity }, { interval: 0 }), identity);
+  assert.deepEqual(selected, [1, 3]);
+  assert.equal((await browser.loginState()).accountId, "parent");
 });
 test("same-origin iframe form is discovered", () => {
   const page = fixture();
