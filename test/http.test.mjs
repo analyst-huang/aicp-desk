@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
+import { createContext } from "../lib/context.mjs";
 import { listenGui } from "../lib/gui-server.mjs";
 import { AicpService } from "../lib/service.mjs";
 import { TemplateStore } from "../lib/templates.mjs";
@@ -22,7 +23,7 @@ export async function fixture(t) {
   const config = { region: "test-region", guiPort: 0 };
   const browser = { status: async () => ({ authenticated: true }) };
   const service = new AicpService(api, templates, config);
-  const server = await listenGui({ config, browser, api, templates, service });
+  const server = await listenGui(await createContext({ config, browser, api, templates, service }));
   t.after(async () => { await server.close(); await rm(directory, { recursive: true, force: true }); });
   const bootstrap = await (await fetch(`${server.url}/api/bootstrap`)).json();
   const request = (route, body, extra = {}) => fetch(`${server.url}${route}`, {

@@ -1,0 +1,19 @@
+# Architecture
+
+AICP Desk is a Node.js ESM application with two adapters: the CLI and a loopback HTTP/GUI server. Runtime distribution remains dependency-free; developer test tools are not part of the installed application.
+
+## Business boundary
+
+`createContext(overrides)` is the composition root. Tests inject cloud, browser, template, configuration and clock dependencies there. CLI and HTTP handlers call business services, never cloud or browser adapters directly. `AicpService` keeps the original method names as a compatibility facade over the developers, training, capacity, images, identity, templates and creation services. Session and settings use cases have their own services.
+
+Creation has two steps: `prepareCreate` merges input, validates it and returns a deeply frozen snapshot; `executeCreate` submits a copy of that snapshot. Confirmation belongs to the entry point. Cancellation and dry-run never call execution. Live availability checks use read-only cloud lookups in the creation domain; the adapter converts platform identifiers and submits the operation. Templates are only written through an explicit save operation.
+
+GraphQL documents live under `lib/cloud/operations`, grouped by resource. The original operations module re-exports every constant. Cloud response field names, public commands, HTTP routes, template format and installation locations remain unchanged.
+
+## Tests and changes
+
+Run `npm test` before committing. Unit and HTTP tests use fake cloud adapters and temporary storage, never real cloud mutations or a user's browser profile. The HTTP server can be created unbound or started on port 0, and explicitly closed afterward. The CI matrix retains Windows, macOS and Linux installation smoke tests.
+
+To add a capability, add its platform operation and adapter method, put validation and orchestration in the owning business service, then expose a thin CLI/HTTP handler and add behavior tests. Keep new business logic out of transport and rendering code. Compatibility facades can remain while callers migrate.
+
+Local JSON read/modify/write operations are serialized per path within one process. Cross-process login recovery additionally uses the existing recovery lock; the JSON write queue is not a replacement for that lock.

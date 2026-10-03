@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { AGENT_INSTRUCTIONS } from "../lib/agent-instructions.mjs";
 import { createContext } from "../lib/context.mjs";
-import { loadConfig, setConfigValue } from "../lib/config.mjs";
+import { loadConfig, setConfigValue } from "../lib/services/settings.mjs";
 import {
   confirmAction,
   formatTable,
@@ -303,7 +305,7 @@ async function handleImage(context, action, args) {
   ].join("\n\n"));
 }
 
-async function handleDev(context, action, args) {
+export async function handleDev(context, action, args, { confirm = confirmAction, output = print } = {}) {
   const { positionals, options } = parseArgs(args);
   if (action === "list") {
     const response = await context.service.listDevelopers({
@@ -312,7 +314,7 @@ async function handleDev(context, action, args) {
       limit: options.limit,
       region: options.region,
     });
-    if (options.json) return print(response, true);
+    if (options.json) return output(response, true);
     const rows = (response.Notebooks ?? []).map((item) => ({
       name: item.Name,
       state: item.State,
@@ -322,7 +324,7 @@ async function handleDev(context, action, args) {
       queue: item.QueueName,
       id: item.NotebookId,
     }));
-    return print(formatTable(rows, [
+    return output(formatTable(rows, [
       { key: "name", label: "名称" },
       { key: "state", label: "状态" },
       { key: "gpu", label: "GPU" },
@@ -334,35 +336,36 @@ async function handleDev(context, action, args) {
   }
 
   if (action === "create") {
-    const variables = await context.service.prepareCreateVariables("dev", {
+    const prepared = await context.service.prepareCreate("dev", {
       file: options.file,
       template: options.template,
       name: options.name,
       region: options.region,
       set: options.set,
     });
-    if (options["dry-run"]) return print(redact(variables, { showSensitive: options["show-sensitive"] }), true);
-    const approved = await confirmAction(`确认创建开发机 ${variables.DisplayName}？`, { yes: Boolean(options.yes) });
-    if (!approved) return print("已取消");
-    const result = await context.api.createNotebook(variables);
-    return print({ result, variables: redact(variables) }, true);
+    const { variables } = prepared;
+    if (options["dry-run"]) return output(redact(variables, { showSensitive: options["show-sensitive"] }), true);
+    const approved = await confirm(`确认创建开发机 ${variables.DisplayName}？`, { yes: Boolean(options.yes) });
+    if (!approved) return output("已取消");
+    const { result } = await context.service.executeCreate(prepared);
+    return output({ result, variables: redact(variables) }, true);
   }
 
   const selector = positionals[0];
   if (!["start", "stop", "delete"].includes(action) || !selector) throw new Error(`未知开发机命令：${action || "（空）"}`);
   const item = await context.service.resolveDeveloper(selector, { region: options.region });
   const verb = { start: "启动", stop: "停止", delete: "永久删除" }[action];
-  const approved = await confirmAction(`确认${verb}开发机 ${item.Name}？`, { yes: Boolean(options.yes) });
-  if (!approved) return print("已取消");
+  const approved = await confirm(`确认${verb}开发机 ${item.Name}？`, { yes: Boolean(options.yes) });
+  if (!approved) return output("已取消");
   const result = action === "start"
     ? await context.service.startDeveloper(item.NotebookId, { region: options.region })
     : action === "stop"
       ? await context.service.stopDeveloper(item.NotebookId, { region: options.region, force: Boolean(options.force) })
       : await context.service.deleteDeveloper(item.NotebookId, { region: options.region });
-  return print(result, true);
+  return output(result, true);
 }
 
-async function handleTrain(context, action, args) {
+export async function handleTrain(context, action, args, { confirm = confirmAction, output = print } = {}) {
   const { positionals, options } = parseArgs(args);
   if (action === "list") {
     if (options.mine && options["creator-id"]) throw new Error("--mine 不能与 --creator-id 同时使用");
@@ -376,7 +379,7 @@ async function handleTrain(context, action, args) {
       limit: options.limit,
       region: options.region,
     });
-    if (options.json) return print(response, true);
+    if (options.json) return output(response, true);
     const rows = (response.TrainJobSet ?? []).map((item) => {
       const resource = item.Roles?.[0]?.ResourceConfig ?? {};
       return {
@@ -401,11 +404,11 @@ async function handleTrain(context, action, args) {
     const page = response.Page ?? Number(options.page ?? 1);
     const pageSize = response.PageSize ?? Number(options.limit ?? 50);
     const total = response.TotalCount ?? rows.length;
-    return print(`第 ${page} 页 · 本页 ${rows.length} / 共 ${total} 条 · 每页 ${pageSize} 条\n\n${table}`);
+    return output(`第 ${page} 页 · 本页 ${rows.length} / 共 ${total} 条 · 每页 ${pageSize} 条\n\n${table}`);
   }
 
   if (action === "create") {
-    const variables = await context.service.prepareCreateVariables("train", {
+    const prepared = await context.service.prepareCreate("train", {
       file: options.file,
       template: options.template,
       name: options.name,
@@ -414,11 +417,12 @@ async function handleTrain(context, action, args) {
       region: options.region,
       set: options.set,
     });
-    if (options["dry-run"]) return print(redact(variables, { showSensitive: options["show-sensitive"] }), true);
-    const approved = await confirmAction(`确认创建训练任务 ${variables.TrainJobName}？`, { yes: Boolean(options.yes) });
-    if (!approved) return print("已取消");
-    const result = await context.api.createTrainJob(variables);
-    return print({ result, variables: redact(variables) }, true);
+    const { variables } = prepared;
+    if (options["dry-run"]) return output(redact(variables, { showSensitive: options["show-sensitive"] }), true);
+    const approved = await confirm(`确认创建训练任务 ${variables.TrainJobName}？`, { yes: Boolean(options.yes) });
+    if (!approved) return output("已取消");
+    const { result } = await context.service.executeCreate(prepared);
+    return output({ result, variables: redact(variables) }, true);
   }
 
   const selector = positionals[0];
@@ -427,12 +431,12 @@ async function handleTrain(context, action, args) {
       latest: Boolean(options.latest),
       region: options.region,
     });
-    if (options.json) return print(redact(payload), true);
-    return print(trainingGpuText(payload));
+    if (options.json) return output(redact(payload), true);
+    return output(trainingGpuText(payload));
   }
   if (action === "detail" && selector) {
     const payload = await context.service.trainingDetail(selector, { latest: Boolean(options.latest), region: options.region });
-    if (options.json) return print(redact(payload), true);
+    if (options.json) return output(redact(payload), true);
     const detail = payload.detail;
     const commands = [];
     if (detail.EntryPointCommand) commands.push({ label: "任务入口命令", value: detail.EntryPointCommand });
@@ -448,7 +452,7 @@ async function handleTrain(context, action, args) {
       "运行命令:",
       ...(commands.length ? commands.flatMap((command) => [`[${command.label}]`, command.value, ""]) : ["未配置显式命令（可能使用镜像默认启动命令）"]),
     ];
-    return print(lines.join("\n"));
+    return output(lines.join("\n"));
   }
   if (action === "logs" && selector) {
     if (options.follow && options.json) throw new Error("--follow 不能与 --json 同时使用；持续输出请使用纯文本模式");
@@ -464,8 +468,8 @@ async function handleTrain(context, action, args) {
     };
     const run = async () => {
       let payload = await context.service.trainingLogs(selector, logOptions);
-      if (options.json) return print(redact(payload), true);
-      print(trainingLogsText(payload));
+      if (options.json) return output(redact(payload), true);
+      output(trainingLogsText(payload));
       if (!options.follow) return;
       const previous = new Map(payload.logs.map((entry) => [entry.pod.Name, String(entry.content ?? "")]));
       let following = true;
@@ -480,33 +484,33 @@ async function handleTrain(context, action, args) {
             const current = String(entry.content ?? "");
             const addition = appendedLogText(previous.get(entry.pod.Name), current).replace(/^\r?\n/, "");
             previous.set(entry.pod.Name, current);
-            if (addition) print(`\n===== ${entry.pod.Name} · ${entry.pod.Role || "未命名角色"} =====\n${addition.trimEnd()}`);
+            if (addition) output(`\n===== ${entry.pod.Name} · ${entry.pod.Role || "未命名角色"} =====\n${addition.trimEnd()}`);
           }
         }
       } finally {
         process.off("SIGINT", stopFollowing);
       }
     };
-    return options.follow ? context.browser.withBrowser(run) : run();
+    return options.follow ? context.session.withBrowser(run) : run();
   }
   if (!["start", "stop", "delete"].includes(action) || !selector) throw new Error(`未知训练命令：${action || "（空）"}`);
   const resolveOptions = { latest: Boolean(options.latest), region: options.region };
   const item = await context.service.resolveTraining(selector, resolveOptions);
   const verb = { start: "启动", stop: "停止", delete: "永久删除" }[action];
-  const approved = await confirmAction(`确认${verb}训练任务 ${item.TrainJobName}？`, { yes: Boolean(options.yes) });
-  if (!approved) return print("已取消");
+  const approved = await confirm(`确认${verb}训练任务 ${item.TrainJobName}？`, { yes: Boolean(options.yes) });
+  if (!approved) return output("已取消");
   const result = action === "start"
     ? await context.service.startTraining(item.TrainJobId, resolveOptions)
     : action === "stop"
       ? await context.service.stopTraining(item.TrainJobId, resolveOptions)
       : await context.service.deleteTraining(item.TrainJobId, resolveOptions);
-  return print(result, true);
+  return output(result, true);
 }
 
 async function handleTemplate(context, action, args) {
   const { positionals, options } = parseArgs(args);
   if (action === "list") {
-    const records = await context.templates.list();
+    const records = await context.service.listTemplates();
     if (options.json) return print(records.map((item) => redact(item)), true);
     const rows = records.map((item) => ({
       kind: item.kind,
@@ -523,7 +527,7 @@ async function handleTemplate(context, action, args) {
   }
   const [kind, name, extra] = positionals;
   if (!kind || !name) throw new Error(`模板命令 ${action} 需要 <dev|train> NAME`);
-  if (action === "show") return print(redact(await context.templates.get(kind, name), { showSensitive: options["show-sensitive"] }), true);
+  if (action === "show") return print(redact(await context.service.getTemplate(kind, name), { showSensitive: options["show-sensitive"] }), true);
   if (action === "save") {
     if (!options.from) throw new Error("template save 需要 --from NAME_OR_ID");
     const record = await context.service.saveTemplateFromResource(kind, name, options.from, {
@@ -539,7 +543,7 @@ async function handleTemplate(context, action, args) {
   if (action === "delete") {
     const approved = await confirmAction(`确认删除模板 ${kind}/${name}？`, { yes: Boolean(options.yes) });
     if (!approved) return print("已取消");
-    return print(await context.templates.delete(kind, name), true);
+    return print(await context.service.deleteTemplate(kind, name), true);
   }
   throw new Error(`未知模板命令：${action}`);
 }
@@ -555,7 +559,7 @@ async function main() {
   if (group === "login") {
     const { positionals, options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
     if (options.auto) {
-      const result = await context.browser.autoLogin();
+      const result = await context.session.autoLogin();
       print(result, true);
       if (!result.authenticated) process.exitCode = 1;
       return;
@@ -569,35 +573,19 @@ async function main() {
     );
     if (!approved) return print("已取消");
     if (remoteUi) {
-      const { normalizeRemoteUiOptions, remoteUiStatus, startRemoteUi, stopRemoteUi } = await import("../lib/remote-ui.mjs");
-      const existing = await remoteUiStatus();
-      const desired = normalizeRemoteUiOptions(options);
-      const canReuseSessionHost = (existing.running || existing.accessStopped)
-        && existing.display === desired.display
-        && existing.vncPort === desired.vncPort
-        && existing.webPort === desired.webPort;
-      if (!canReuseSessionHost) await context.browser.closeActiveBrowser();
-      const status = await startRemoteUi(context.config, options);
-      let browser;
-      try {
-        browser = await context.browser.launchLogin({ display: status.display, passwordStore: "basic" });
-      } catch (error) {
-        if (!status.alreadyRunning) await stopRemoteUi();
-        throw error;
-      }
+      const { remoteUi: status, browser } = await context.session.loginRemote(options);
       print({ remoteUi: status, browser }, true);
       printRemoteUiAccess(status);
       if (browser.authenticated) return print("登录已验证，可继续执行任务；运行 aicp remote-ui stop --yes 可关闭 VNC 入口并保留后台会话。");
       return print(browser.authenticationError || "请转发上面的网页端口，按登录页面实际要求完成剩余步骤，然后运行 aicp session 验证。");
     }
-    const result = await context.browser.launchLogin();
+    const result = await context.session.login();
     print(result, true);
     return print(result.authenticated ? "登录已验证，可继续执行任务。" : result.authenticationError || "请在专用 Edge 中完成剩余登录步骤；仅当平台要求时输入验证码。", false);
   }
   if (group === "remote-ui") {
     const remoteAction = action || "status";
     const { options } = parseArgs(rest);
-    const { installRemoteUiRuntime, remoteUiDoctor, remoteUiStatus, stopRemoteUi, suspendRemoteUi } = await import("../lib/remote-ui.mjs");
     if (remoteAction === "install") {
       const allowNoSandbox = Boolean(options["allow-no-sandbox"]);
       const allowRoot = Boolean(options["allow-root"]);
@@ -619,16 +607,16 @@ async function main() {
         { yes: Boolean(options.yes) },
       );
       if (!approved) return print("已取消");
-      return print(await installRemoteUiRuntime({ allowNoSandbox, allowRoot, runtimeMode }), true);
+      return print(await context.session.remoteInstall({ allowNoSandbox, allowRoot, runtimeMode }), true);
     }
     if (remoteAction === "doctor") {
-      const report = await remoteUiDoctor(context.config, options);
+      const report = await context.session.remoteDoctor(options);
       print(report, true);
       if (!report.ready) process.exitCode = 1;
       return;
     }
     if (remoteAction === "status") {
-      const status = await remoteUiStatus();
+      const status = await context.session.remoteStatus();
       if (options.json) return print(status, true);
       if (!status.configured) return print("远端 UI 未启动。运行：aicp login --remote-ui --yes");
       print(`远端 UI: ${status.running ? "运行中" : status.accessStopped ? "VNC 入口已关闭，后台登录会话保留中" : "进程不完整，请先完全停止后重试"}`);
@@ -642,9 +630,7 @@ async function main() {
         ? "确认完全关闭远端 Edge、Xvfb 和 VNC？金山云使用会话 Cookie，关闭 Edge 后当前登录态会失效。"
         : "确认关闭 VNC 网页入口？后台 Edge/Xvfb 会继续运行以保留当前登录态。", { yes: Boolean(options.yes) });
       if (!approved) return print("已取消");
-      if (!stopAll) return print(await suspendRemoteUi(), true);
-      const browserClosed = await context.browser.closeActiveBrowser();
-      return print({ browserClosed, ...(await stopRemoteUi()), sessionKept: false }, true);
+      return print(await context.session.remoteStop(stopAll), true);
     }
     throw new Error(`未知远端 UI 命令：${remoteAction}`);
   }
@@ -656,11 +642,11 @@ async function main() {
       : "确认清除 AICP 登录会话？Edge 已保存的账号和密码会保留。";
     const approved = await confirmAction(message, { yes: Boolean(options.yes) });
     if (!approved) return print("已取消");
-    return print(await context.browser.logout({ forget }), true);
+    return print(await context.session.logout({ forget }), true);
   }
   if (group === "session") {
     const { options } = parseArgs([action, ...rest].filter((item) => item !== undefined));
-    return print(await context.browser.status({ autoLogin: !options.check }), true);
+    return print(await context.session.status({ autoLogin: !options.check }), true);
   }
   if (group === "gpu") return handleGpu(context, [action, ...rest].filter((item) => item !== undefined));
   if (group === "image") return handleImage(context, action, rest);
@@ -678,7 +664,7 @@ async function main() {
   throw new Error(`未知命令：${group}\n\n${HELP}`);
 }
 
-main().catch((error) => {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
   process.stderr.write(`错误${error.code ? ` [${error.code}]` : ""}：${error.message}\n`);
   process.exitCode = 1;
 });
