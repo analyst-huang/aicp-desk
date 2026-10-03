@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const html = await readFile(new URL("../web/index.html", import.meta.url), "utf8");
-const script = await readFile(new URL("../web/app.js", import.meta.url), "utf8");
+const { readdir } = await import('node:fs/promises');
+const sourceFiles = [...(await readdir(new URL('../web/features/', import.meta.url))).map(name => '../web/features/'+name), '../web/core/ui.js'];
+const script = (await Promise.all(sourceFiles.map(name => readFile(new URL(name, import.meta.url), 'utf8')))).join('\n');
 const server = await readFile(new URL("../lib/gui-server.mjs", import.meta.url), "utf8");
 const styles = await readFile(new URL("../web/styles.css", import.meta.url), "utf8");
 
@@ -139,7 +141,7 @@ test("training detail drawer exposes refreshable pod logs", () => {
   assert.match(script, /id="train-log-auto" checked/);
   assert.match(script, /data-copy-train-log/);
   assert.match(script, /data-refresh-train-log/);
-  assert.match(script, /setTimeout\(\(\) => loadTrainLogs\(\{ background: true \}\), 3000\)/);
+  assert.match(script, /delay: 3000/);
   assert.match(server, /\/api\/train\/logs/);
   assert.match(styles, /\.train-log-card/);
 });
@@ -147,7 +149,7 @@ test("training detail drawer exposes refreshable pod logs", () => {
 test("resource pages refresh in the background every ten seconds", () => {
   assert.match(html, /id="auto-refresh-status"/);
   assert.match(script, /const AUTO_REFRESH_MS = 10_000/);
-  assert.match(script, /setInterval\(\(\) => refreshActiveResourcePage\(\{ background: true \}\), AUTO_REFRESH_MS\)/);
+  assert.match(script, /delay: AUTO_REFRESH_MS/);
   assert.match(script, /if \(state\.devLoading\) return/);
   assert.match(script, /if \(state\.trainLoading\) return/);
   assert.match(script, /if \(state\.gpuLoading\) return/);
@@ -170,7 +172,7 @@ test("GUI exposes native resource-pool and queue GPU capacity", () => {
   assert.match(script, /function orderedGpuNodes/);
   assert.match(script, /function rerenderGpuCapacity/);
   assert.match(script, /节点实时容量/);
-  assert.match(script, /state\.page === "gpu"/);
+  assert.match(script, /appState\.page === "gpu"/);
   assert.match(server, /\/api\/gpu/);
   assert.match(styles, /\.capacity-pool/);
   assert.match(styles, /\.capacity-node-grid/);

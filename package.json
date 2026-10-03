@@ -10,9 +10,13 @@
   "scripts": {
     "test": "node --test",
     "gui": "node ./bin/aicp.mjs gui",
-    "start": "node ./bin/aicp.mjs gui"
+    "start": "node ./bin/aicp.mjs gui",
+    "test:browser": "playwright test"
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
   }
 }

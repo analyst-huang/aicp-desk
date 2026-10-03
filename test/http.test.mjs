@@ -63,6 +63,18 @@ test("HTTP create validates before dispatch and returns the existing response sh
   assert.deepEqual(calls, [dev]);
 });
 
+test("HTTP serves module assets without exposing application files", async (t) => {
+  const { request } = await fixture(t);
+  for (const asset of ["/application.js", "/features/create.js", "/core/polling.js"]) {
+    const response = await request(asset);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /javascript/);
+  }
+  for (const asset of ["/lib/config.mjs", "/features/../../package.json", "/features/%2e%2e%2flib%2fconfig.mjs", "/features/missing.js", "/constructor"]) {
+    assert.equal((await request(asset)).status, 404);
+  }
+});
+
 test("template read and editable create do not overwrite the stored template", async (t) => {
   const { request, templates, service, calls, dev } = await fixture(t);
   await templates.save("dev", "baseline", dev);

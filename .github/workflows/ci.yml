@@ -17,6 +17,11 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - run: npm ci
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Browser interaction tests
+        run: npm run test:browser
       - name: Validate Unix scripts
         if: runner.os != 'Windows'
         run: sh -n install.sh uninstall.sh aicp start-gui.sh test/install-smoke.sh
