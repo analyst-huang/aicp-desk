@@ -25,3 +25,9 @@ Local JSON read/modify/write operations are serialized per path within one proce
 Event listeners share an abort signal. Disposal clears polling and invalidates pending responses. Dialog and resource request generations prevent a stale response from overwriting a newly opened view. Requests operate on the original HTTP contract, and the static server only exposes the UI asset directories.
 
 Install developer dependencies with `npm ci`, install Chromium with `npx playwright install chromium`, and run `npm run test:browser`. Tests use real UI assets with intercepted API fixtures. On a machine with Edge, set `AICP_TEST_BROWSER=msedge` to reuse its executable with an isolated temporary test profile. The CI matrix runs Chromium. No real account, browser profile or cloud writes are involved.
+
+## Browser and authentication infrastructure
+
+`BrowserSession` is a stable facade over browser runtime/CDP, authentication recovery, GraphQL transport and Grafana reading. Components receive the session port so existing integration overrides remain valid. Paths, clock, sleep, CDP connection, process launcher and local browser requests can be supplied through its constructor; the application composition root accepts these as `browserOptions`.
+
+The runtime owns reference-counted browser leases: concurrent work shares a launch, and only a browser created for that work is closed. Authentication owns identity checks, recovery cooldown and diagnostics. The existing cross-process recovery lock and saved-info reader retain their behavior. GraphQL transport validates identity before dispatch, retries a confirmed read at most once after recovery, and never replays a mutation whose result is uncertain. Keep these rules covered when changing either layer.

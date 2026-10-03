@@ -3,26 +3,26 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { BrowserSession, cleanupStaleEdgeSingletonLinks } from "../lib/browser.mjs";
 
-const source = await readFile(new URL("../lib/browser.mjs", import.meta.url), "utf8");
+const source = (await Promise.all(['runtime', 'graphql', 'authentication', 'monitor', 'environment'].map(name => readFile(new URL(`../lib/browser/${name}.mjs`, import.meta.url), 'utf8')))).join('\n');
 const remoteUiSource = await readFile(new URL("../lib/remote-ui.mjs", import.meta.url), "utf8");
 
 test("normal logout clears cookies without deleting the Edge profile", () => {
   const clearSession = source.slice(source.indexOf("async clearSession()"), source.indexOf("async forgetLogin()"));
   assert.match(clearSession, /Network\.clearBrowserCookies/);
-  assert.doesNotMatch(clearSession, /rm\(this\.paths\.browserProfile/);
+  assert.doesNotMatch(clearSession, /rm\(host\.paths\.browserProfile/);
 });
 
 test("forget-login explicitly deletes the dedicated Edge profile", () => {
   const forgetLogin = source.slice(source.indexOf("async forgetLogin()"), source.indexOf("async logout("));
-  assert.match(forgetLogin, /rm\(this\.paths\.browserProfile/);
-  assert.match(forgetLogin, /rm\(this\.paths\.remoteUiProfile/);
+  assert.match(forgetLogin, /rm\(host\.paths\.browserProfile/);
+  assert.match(forgetLogin, /rm\(host\.paths\.remoteUiProfile/);
 });
 
 test("headless Linux requests reuse the password store selected by remote UI login", () => {
   assert.match(source, /remoteUiProfile/);
   assert.match(source, /--password-store=\$\{passwordStore\}/);
   const launchHeadless = source.slice(source.indexOf("async launchHeadless()"), source.indexOf("async withBrowser("));
-  assert.match(launchHeadless, /exists\(this\.paths\.remoteUiProfile\)/);
+  assert.match(launchHeadless, /exists\(host\.paths\.remoteUiProfile\)/);
   assert.match(launchHeadless, /passwordStore: "basic"|\? "basic"/);
 });
 
@@ -36,7 +36,7 @@ test("root-container markers apply no-sandbox even when Edge comes from the envi
 });
 
 test("Linux Edge always receives a private writable XDG config directory", () => {
-  assert.match(source, /XDG_CONFIG_HOME: this\.paths\.edgeConfig/);
+  assert.match(source, /XDG_CONFIG_HOME: host\.paths\.edgeConfig/);
   const launchLogin = source.slice(source.indexOf("async launchLogin("), source.indexOf("async launchHeadless("));
   const launchHeadless = source.slice(source.indexOf("async launchHeadless()"), source.indexOf("async withBrowser("));
   assert.match(launchLogin, /browserEnvironment/);
@@ -230,10 +230,10 @@ test("browser launches run stale singleton cleanup before spawning Edge", () => 
 
 test("browser requests use a shared reference-counted session lease", () => {
   assert.match(source, /async withBrowser\(callback\)/);
-  assert.match(source, /this\.browserUsers \+= 1/);
-  assert.match(source, /this\.browserUsers -= 1/);
-  const graphql = source.slice(source.indexOf("async graphql("), source.indexOf("async closeActiveBrowser"));
-  assert.match(graphql, /return this\.withBrowser/);
+  assert.match(source, /host\.browserUsers \+= 1/);
+  assert.match(source, /host\.browserUsers -= 1/);
+  const graphql = source.slice(source.indexOf("async graphql("), source.indexOf("async graphqlResponse"));
+  assert.match(graphql, /return host\.withBrowser/);
 });
 
 test("platform empty-token errors are reported as an expired login", () => {

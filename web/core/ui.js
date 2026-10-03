@@ -96,7 +96,7 @@ export function createFeature({ appState, features, ui, signal }) {
   }
 
   function bind() {
-  
+
   }
 
   return { state, bind, $, $$, on, escapeHtml, api, toast, setBusy, statusLabel, statusPill, metric, percentLabel, tableLoading, copyText };
