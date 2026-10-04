@@ -94,7 +94,7 @@ test("distribution includes agent-ready private and explicit system remote UI in
   assert.match(cli, /aicp remote-ui install/);
   assert.match(cli, /aicp login remote-ui/);
   assert.match(cli, /positionals\.includes\("remote-ui"\)/);
-  assert.match(cli, /installRemoteUiRuntime/);
+  assert.match(await read("lib/services/session.mjs"), /installRemoteUiRuntime/);
   assert.match(cli, /--runtime-mode auto\|private\|system/);
   assert.match(cli, /remote-ui stop --all/);
   assert.match(cli, /VS Code 转发端口/);

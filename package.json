@@ -1,6 +1,6 @@
 {
   "name": "aicp-desk",
-  "version": "0.14.6",
+  "version": "0.14.7",
   "private": true,
   "description": "跨平台的金山云星流本地 CLI 与可视化控制台",
   "type": "module",
@@ -10,9 +10,17 @@
   "scripts": {
     "test": "node --test",
     "gui": "node ./bin/aicp.mjs gui",
-    "start": "node ./bin/aicp.mjs gui"
+    "start": "node ./bin/aicp.mjs gui",
+    "test:browser": "playwright test",
+    "check:types": "tsc -p tsconfig.check.json",
+    "check:cloud": "node scripts/check-cloud-contracts.mjs"
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
   }
 }

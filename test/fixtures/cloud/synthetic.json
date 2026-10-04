@@ -1,0 +1,11 @@
+{
+  "formatVersion": 1,
+  "source": "synthetic: hand-authored from the application's current GraphQL documents; not a live recording",
+  "responses": [
+    { "operation": "DescribeNotebook", "data": { "DescribeNotebook": { "Notebooks": [{ "NotebookId": "fixture-dev", "Name": "Fixture developer", "State": "stopped" }], "TotalCount": 1 } } },
+    { "operation": "DescribeTrainJobs", "data": { "DescribeTrainJobs": { "TrainJobSet": [{ "TrainJobId": "fixture-train", "TrainJobName": "Fixture training", "JobStatus": { "Status": "pending" } }], "TotalCount": 1 } } },
+    { "operation": "DescribeAllResourcePool", "data": { "DescribeAllResourcePool": { "ResourcePoolSet": [{ "ResourcePoolId": "fixture-pool", "ResourcePoolName": "Fixture pool" }] } } },
+    { "operation": "AicpGetAccountAllProjectList", "data": { "AicpGetAccountAllProjectList": { "ListProjectResult": { "ProjectList": [{ "ProjectId": 0, "ProjectName": "Fixture project" }] } } } },
+    { "operation": "DescribeAicpImages", "data": { "DescribeAicpImages": { "ImageSet": [{ "ImageId": "fixture-image", "ImageName": "Fixture image" }] } } }
+  ]
+}
