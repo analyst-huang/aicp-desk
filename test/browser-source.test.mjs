@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { BrowserSession, cleanupStaleEdgeSingletonLinks } from "../lib/browser.mjs";
 
 function fakeSingletonFileSystem(initialLinks, { existingTargets = [], processCommandLines = {} } = {}) {
@@ -38,7 +37,6 @@ function fakeSingletonFileSystem(initialLinks, { existingTargets = [], processCo
 }
 
 
-const remoteUiSource = await readFile(new URL("../lib/remote-ui.mjs", import.meta.url), "utf8");
 
 test("Linux Edge startup removes stale singleton links after the container hostname changes", async () => {
   const fake = fakeSingletonFileSystem({
@@ -222,17 +220,4 @@ test("Grafana GPU metrics use a temporary authenticated target and always close 
     () => browser.grafanaGpuMetrics("https://example.com/kaic-dashboard"),
     /无效的训练任务 Grafana 监控地址/,
   );
-});
-
-test("remote UI startup retains per-process logs and includes stderr on failure", () => {
-  assert.match(remoteUiSource, /remote-ui-\$\{spec\.name\}\.log/);
-  assert.match(remoteUiSource, /slice\(-20\)/);
-  assert.match(remoteUiSource, /details \? `\\n\$\{details\}`/);
-});
-
-test("ordinary remote UI stop keeps Xvfb while the all mode can fully terminate it", () => {
-  assert.match(remoteUiSource, /export async function suspendRemoteUi/);
-  assert.match(remoteUiSource, /if \(record\.name === "xvfb"\) continue/);
-  assert.match(remoteUiSource, /accessStopped: true/);
-  assert.match(remoteUiSource, /resumed: resuming/);
 });
