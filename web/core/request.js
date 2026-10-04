@@ -1,3 +1,4 @@
+// @ts-check
 export class ApiError extends Error {
   /** @param {import('../../lib/contracts.mjs').ErrorPayload} payload @param {number} status */
   constructor(payload, status) {

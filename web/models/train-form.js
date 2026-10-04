@@ -1,3 +1,4 @@
+// @ts-check
 /** @param {string} region @returns {import('../../lib/contracts.mjs').TrainingCreateVariables} */
 export const defaults = (region) => ({
   Region: region,

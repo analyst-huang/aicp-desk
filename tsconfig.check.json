@@ -1,13 +1,18 @@
 {
   "compilerOptions": {
     "allowJs": true,
-    "checkJs": true,
+    "checkJs": false,
     "strict": true,
     "noEmit": true,
     "target": "ES2022",
     "module": "NodeNext",
-    "lib": ["ES2023", "DOM"],
-    "types": [],
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ],
     "skipLibCheck": true
   },
   "files": [
@@ -15,6 +20,15 @@
     "lib/errors.mjs",
     "web/core/request.js",
     "web/models/dev-form.js",
-    "web/models/train-form.js"
+    "web/models/train-form.js",
+    "lib/ports.mjs",
+    "lib/service.mjs",
+    "lib/browser.mjs",
+    "lib/domain/resource-policy.mjs",
+    "web/core/request-scope.js",
+    "lib/domain/create-input.mjs",
+    "lib/services/creation.mjs",
+    "typechecks/composition.mjs",
+    "lib/cloud/read-contracts.mjs"
   ]
 }
