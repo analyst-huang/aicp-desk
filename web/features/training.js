@@ -1,3 +1,4 @@
+import { resourceCapabilities } from '/shared/resource-policy.js';
 /** training owns its local state and event bindings; cross-feature calls are explicit. */
 export function createFeature({ appState, markResourceRefresh, performResourceAction, ui, signal }) {
   let requestId = 0;
@@ -31,8 +32,7 @@ export function createFeature({ appState, markResourceRefresh, performResourceAc
       if (current !== requestId || signal.aborted) return;
       state.train = payload.TrainJobSet || [];
       $("#train-count").textContent = `匹配 ${payload.TotalCount ?? state.train.length} 条，当前显示 ${state.train.length} 条`;
-      const activeStates = new Set(["running", "pending", "deploying", "submit", "restarting", "succeed_holding", "failed_holding"]);
-      const active = state.train.filter((item) => activeStates.has(String(item.JobStatus?.Status).toLowerCase())).length;
+      const active = state.train.filter((item) => resourceCapabilities('train', item.JobStatus?.Status).active).length;
       const success = state.train.filter((item) => item.JobStatus?.Status === "succeed").length;
       const failed = state.train.filter((item) => item.JobStatus?.Status === "failed").length;
       $("#train-metrics").innerHTML = metric("当前结果", state.train.length, "条") + metric("活动任务", active, "条") + metric("成功", success, "条") + metric("失败", failed, "条");
@@ -43,9 +43,7 @@ export function createFeature({ appState, markResourceRefresh, performResourceAc
       }
       table.innerHTML = state.train.map((item) => {
         const status = String(item.JobStatus?.Status || "").toLowerCase();
-        const canStop = activeStates.has(status);
-        const canStart = ["stopped", "failed", "succeed"].includes(status);
-        const canDelete = ["stopped", "failed", "succeed"].includes(status);
+        const { canStop, canStart, canDelete } = resourceCapabilities('train', status);
         const resource = item.Roles?.[0]?.ResourceConfig || {};
         const compute = resource.GPUNumber ? `${resource.GPUNumber} × ${resource.GPUType}` : "CPU";
         return `<tr>

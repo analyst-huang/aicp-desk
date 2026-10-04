@@ -43,7 +43,7 @@ export async function mountApplication() {
     onRegionChange: () => { dev.resetOptions(); train.resetOptions(); },
   });
   shellController = shell({ ...common, resources,
-    templates: { replace: templateLibrary.replace, renderTemplates: templateLibrary.renderTemplates, loadTemplates: templateLibrary.loadTemplates },
+    templates: { deactivate: templateLibrary.dispose, replace: templateLibrary.replace, renderTemplates: templateLibrary.renderTemplates, loadTemplates: templateLibrary.loadTemplates },
     settings: { renderSession: preferences.renderSession, refreshSession: preferences.refreshSession, fillSettings: preferences.fillSettings },
   });
   const features = [shellController, preferences, developerPage, trainingPage, capacityPage,

@@ -1,3 +1,4 @@
+import { resourceCapabilities } from '/shared/resource-policy.js';
 /** developers owns its local state and event bindings; cross-feature calls are explicit. */
 export function createFeature({ appState, markResourceRefresh, performResourceAction, ui, signal }) {
   let requestId = 0;
@@ -27,7 +28,7 @@ export function createFeature({ appState, markResourceRefresh, performResourceAc
       if (current !== requestId || signal.aborted) return;
       state.dev = payload.Notebooks || [];
       $("#dev-count").textContent = `共 ${payload.TotalCount ?? state.dev.length} 台`;
-      const running = state.dev.filter((item) => ["running", "starting", "pending"].includes(String(item.State).toLowerCase())).length;
+      const running = state.dev.filter((item) => resourceCapabilities('dev', item.State).active).length;
       const gpu = state.dev.reduce((sum, item) => sum + Number(item.GPUNumber || 0), 0);
       const cpu = state.dev.reduce((sum, item) => sum + Number(item.CpuNum || 0), 0);
       $("#dev-metrics").innerHTML = metric("开发机总数", state.dev.length, "台") + metric("运行 / 启动中", running, "台") + metric("GPU 配额视图", gpu, "卡") + metric("配置 CPU 合计", cpu, "核");
@@ -37,13 +38,9 @@ export function createFeature({ appState, markResourceRefresh, performResourceAc
         return;
       }
       table.innerHTML = state.dev.map((item) => {
-        const developerState = String(item.State).toLowerCase();
-        const canStop = ["running", "starting", "pending", "deploying"].includes(developerState);
-        const canStart = ["stopped", "failed", "succeed"].includes(developerState);
-        const canDelete = ["stopped", "failed", "succeed"].includes(developerState);
+        const { canStop, canStart, canDelete, canSaveImage } = resourceCapabilities('dev', item.State);
         const compute = item.GPUNumber ? `${item.GPUNumber} × ${item.GPUType}` : "CPU only";
         const canCopyPublicSsh = item.EnableSsh && item.EnablePublicNetworkSsh && item.ExternalIp;
-        const canSaveImage = developerState === "running";
         return `<tr>
           <td class="name-cell"><strong>${escapeHtml(item.Name)}</strong><small>${escapeHtml(item.NotebookId)}</small></td>
           <td>${statusPill(item.State)}</td><td>${escapeHtml(compute)}</td>

@@ -1,18 +1,23 @@
+import { createRequestScope } from '../core/request-scope.js';
 import { defaults as developerDefaults } from '../models/dev-form.js';
 import { defaults as trainingDefaults } from '../models/train-form.js';
 /** templates owns its local state and event bindings; cross-feature calls are explicit. */
 export function createFeature({ appState, openCreate, ui, signal }) {
   const state = { templates: [] };
+  const libraryScope = createRequestScope(signal), editorScope = createRequestScope(signal);
   const { $, $$, on, escapeHtml, api, toast, setBusy } = ui;
   const devDefaults = () => developerDefaults(appState.config.region);
   const trainDefaults = () => trainingDefaults(appState.config.region);
 
   async function loadTemplates() {
+    const request = libraryScope.next();
     try {
-      state.templates = await api("/api/templates");
+      const records = await api("/api/templates");
+      if (!libraryScope.isCurrent(request)) return;
+      state.templates = records;
       renderTemplates();
     } catch (error) {
-      toast(error.message, "error");
+      if (libraryScope.isCurrent(request)) toast(error.message, "error");
     }
   }
 
@@ -41,6 +46,8 @@ export function createFeature({ appState, openCreate, ui, signal }) {
   }
 
   function openTemplateEditor(kind = "dev", name = "", variables = undefined) {
+    editorScope.invalidate();
+    setBusy($("#save-template-button"), false);
     $("#template-kind").value = kind;
     $("#template-kind").disabled = Boolean(name);
     $("#template-name").value = name;
@@ -50,11 +57,12 @@ export function createFeature({ appState, openCreate, ui, signal }) {
   }
 
   async function editTemplate(kind, name) {
+    const request = editorScope.next();
     try {
       const record = await api(`/api/template?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}`);
-      openTemplateEditor(kind, name, record.variables);
+      if (editorScope.isCurrent(request)) openTemplateEditor(kind, name, record.variables);
     } catch (error) {
-      toast(error.message, "error");
+      if (editorScope.isCurrent(request)) toast(error.message, "error");
     }
   }
 
@@ -70,17 +78,18 @@ export function createFeature({ appState, openCreate, ui, signal }) {
     let variables;
     try { variables = JSON.parse($("#template-json").value); }
     catch (error) { return toast(`JSON 格式错误：${error.message}`, "error"); }
+    const request = editorScope.current();
     const button = $("#save-template-button");
     setBusy(button, true);
     try {
       await api("/api/template", { method: "POST", body: JSON.stringify({ kind, name, variables }) });
-      $("#template-modal").close();
+      if (editorScope.isCurrent(request)) $("#template-modal").close();
       toast(`模板 ${name} 已保存`);
       await loadTemplates();
     } catch (error) {
       toast(error.message, "error");
     } finally {
-      setBusy(button, false);
+      if (editorScope.isCurrent(request) || !$("#template-modal").open) setBusy(button, false);
     }
   }
 
@@ -93,7 +102,10 @@ export function createFeature({ appState, openCreate, ui, signal }) {
     } catch (error) { toast(error.message, "error"); }
   }
 
+  function dispose() { libraryScope.invalidate(); editorScope.invalidate(); }
+
   function bind() {
+    on($("#template-modal"), "close", () => editorScope.invalidate());
     on(document, "click", async (event) => {
       const saveResource = event.target.closest("[data-save-resource]");
       if (saveResource) {
@@ -126,8 +138,8 @@ export function createFeature({ appState, openCreate, ui, signal }) {
     ));
   }
 
-  return { bind, loadTemplates, renderTemplates,
+  return { bind, dispose, loadTemplates, renderTemplates,
     list: () => structuredClone(state.templates),
-    replace: records => { state.templates = structuredClone(records); },
+    replace: records => { libraryScope.invalidate(); state.templates = structuredClone(records); },
   };
 }

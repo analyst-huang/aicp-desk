@@ -58,6 +58,7 @@ test("HTTP protections reject invalid tokens, foreign origins and hosts", async 
 test("HTTP create validates before dispatch and returns the existing response shape", async (t) => {
   const { request, calls, dev } = await fixture(t);
   assert.equal((await request("/api/dev/create", { variables: {} })).status, 400);
+  for (const CpuNum of ['abc', null, '', true, {}]) assert.equal((await request('/api/dev/create', { variables: { ...dev, CpuNum } })).status, 400);
   assert.equal(calls.length, 0);
   const response = await request("/api/dev/create", { variables: dev });
   assert.equal(response.status, 200);
@@ -67,12 +68,12 @@ test("HTTP create validates before dispatch and returns the existing response sh
 
 test("HTTP serves module assets without exposing application files", async (t) => {
   const { request } = await fixture(t);
-  for (const asset of ["/application.js", "/features/create.js", "/core/polling.js", "/models/dev-form.js", "/models/train-form.js"]) {
+  for (const asset of ["/application.js", "/features/create.js", "/core/polling.js", "/models/dev-form.js", "/models/train-form.js", "/shared/resource-policy.js"]) {
     const response = await request(asset);
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type"), /javascript/);
   }
-  for (const asset of ["/lib/config.mjs", "/features/../../package.json", "/features/%2e%2e%2flib%2fconfig.mjs", "/features/missing.js", "/constructor"]) {
+  for (const asset of ["/lib/config.mjs", "/features/../../package.json", "/features/%2e%2e%2flib%2fconfig.mjs", "/features/missing.js", "/constructor", "/shared/create-input.js", "/shared/../lib/config.mjs"]) {
     assert.equal((await request(asset)).status, 404);
   }
 });

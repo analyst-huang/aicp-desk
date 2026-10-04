@@ -19,6 +19,7 @@ export function createFeature({ appState, resources, templates, settings, ui, si
   function setPage(page) {
     const previous = resources[appState.page];
     previous?.deactivate();
+    if (appState.page === "templates" && page !== "templates") templates.deactivate();
     appState.page = page;
     $$(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.page === page));
     $$(".page").forEach((node) => node.classList.toggle("active", node.id === `page-${page}`));

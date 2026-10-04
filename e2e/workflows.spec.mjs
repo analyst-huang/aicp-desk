@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { RESOURCE_STATES, resourceCapabilities } from '../lib/domain/resource-policy.mjs';
 
 const dev = JSON.parse(await readFile(new URL('../examples/dev-create.json', import.meta.url), 'utf8'));
 const train = JSON.parse(await readFile(new URL('../examples/train-create.json', import.meta.url), 'utf8'));
@@ -13,6 +14,91 @@ const options = {
   images: { official: [], personal: [{ ImageId: dev.ImageId, ImageName: 'Dev image' }, { ImageId: train.Roles[0].ImageConfig.ImageId, ImageName: 'Train image' }] },
   imageRegistries: [], storageConfigs: [{ StorageConfigId: train.StorageConfigs[0].StorageConfigId, Name: 'Data' }], availableAddresses: [],
 };
+
+test('a completed save-as does not change a reopened create dialog or its template selection', async ({ page }) => {
+  let pending;
+  await setup(page, { '/api/template': route => route.request().method() === 'POST'
+    ? new Promise(resolve => { pending = async () => { await route.fulfill({ json: { saved: true } }); resolve(); }; })
+    : route.fulfill({ json: templates.find(item => item.name === new URL(route.request().url()).searchParams.get('name')) }) });
+  await page.locator('.nav-item[data-page="templates"]').click();
+  await page.locator('[data-use-template="saved-dev"]').click();
+  await expect(page.locator('#create-name')).toHaveValue('template-dev');
+  page.once('dialog', dialog => dialog.accept('copy-dev'));
+  await page.locator('#save-create-template').click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await page.locator('[data-close-modal="create-modal"]').first().click();
+  await page.locator('[data-use-template="saved-train"]').click();
+  await expect(page.locator('#create-name')).toHaveValue('template-train');
+  await pending();
+  await expect(page.locator('#toast-stack')).toContainText('copy-dev');
+  await expect(page.locator('#create-template')).toHaveValue('saved-train');
+  await expect(page.locator('#create-name')).toHaveValue('template-train');
+});
+
+test('a completed editor save does not close or reset a newly opened template editor', async ({ page }) => {
+  let pending;
+  await setup(page, { '/api/template': route => route.request().method() === 'POST'
+    ? new Promise(resolve => { pending = async () => { await route.fulfill({ json: { saved: true } }); resolve(); }; })
+    : route.fulfill({ json: templates.find(item => item.name === new URL(route.request().url()).searchParams.get('name')) }) });
+  await page.locator('.nav-item[data-page="templates"]').click();
+  await page.locator('[data-edit-template="saved-dev"]').click();
+  await expect(page.locator('#template-name')).toHaveValue('saved-dev');
+  await page.locator('#save-template-button').click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await page.locator('[data-close-modal="template-modal"]').first().click();
+  await page.locator('#new-template-button').click();
+  await page.locator('#template-name').fill('new-draft');
+  await pending();
+  await expect(page.locator('#toast-stack')).toContainText('saved-dev');
+  await expect(page.locator('#template-modal')).toBeVisible();
+  await expect(page.locator('#template-name')).toHaveValue('new-draft');
+  await expect(page.locator('#save-template-button')).toBeEnabled();
+});
+
+test('changing the draft during submission keeps the confirmed payload and releases the same dialog', async ({ page }) => {
+  let pending;
+  const { writes } = await setup(page, { '/api/dev/create': route => new Promise(resolve => {
+    pending = async () => { await route.fulfill({ json: { result: { id: 'created' } } }); resolve(); };
+  }) });
+  await page.locator('.nav-item[data-page="templates"]').click();
+  await page.locator('[data-use-template="saved-dev"]').click();
+  await expect(page.locator('#create-name')).toHaveValue('template-dev');
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#submit-create').click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await page.locator('#create-template').selectOption('');
+  await expect(page.locator('#create-name')).toHaveValue('');
+  await pending();
+  await expect(page.locator('#create-modal')).not.toBeVisible();
+  expect(writes).toHaveLength(1);
+  expect(writes[0].body.variables.DisplayName).toBe('template-dev');
+  await page.locator('[data-use-template="saved-dev"]').click();
+  await expect(page.locator('#submit-create')).toBeEnabled();
+});
+
+test('leaving the template page invalidates a pending editor load', async ({ page }) => {
+  let pending;
+  await setup(page, { '/api/template': route => new Promise(resolve => { pending = async () => { await route.fulfill({ json: templates[0] }); resolve(); }; }) });
+  await page.locator('.nav-item[data-page="templates"]').click();
+  await page.locator('[data-edit-template="saved-dev"]').click();
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await page.locator('.nav-item[data-page="dev"]').click();
+  await pending();
+  await expect(page.locator('#template-modal')).not.toBeVisible();
+});
+
+for (const kind of ['dev', 'train']) test(`${kind} buttons follow the shared policy for all states`, async ({ page }) => {
+  const states = [...RESOURCE_STATES[kind].active, ...RESOURCE_STATES[kind].terminal, 'stopping', 'future-status'];
+  const items = states.map(state => kind === 'dev'
+    ? { NotebookId: state, Name: state, State: state }
+    : { TrainJobId: state, TrainJobName: state, JobStatus: { Status: state } });
+  await setup(page, { [`/api/${kind}`]: route => route.fulfill({ json: { [kind === 'dev' ? 'Notebooks' : 'TrainJobSet']: items, TotalCount: items.length } }) });
+  await page.locator(`.nav-item[data-page="${kind}"]`).click();
+  for (const state of states) for (const action of ['start', 'stop', 'delete']) {
+    const allowed = resourceCapabilities(kind, state)[`can${action[0].toUpperCase()}${action.slice(1)}`];
+    await expect(page.locator(`[data-${kind}-action="${action}"][data-id="${state}"]`)).toBeEnabled({ enabled: allowed });
+  }
+});
 
 async function setup(page, overrides = {}) {
   const writes = [], requests = [], errors = [];

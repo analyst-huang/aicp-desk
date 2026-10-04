@@ -224,7 +224,7 @@ test("training create validation rejects missing image and invalid role resource
   await assert.rejects(() => service.prepareCreateVariables("train", { variables: base }), /ImageId 不能为空/);
   base.Roles[0].ImageConfig.ImageId = "image";
   base.Roles[0].ResourceConfig.CPUNum = 0;
-  await assert.rejects(() => service.prepareCreateVariables("train", { variables: base }), /CPU 和内存必须大于 0/);
+  await assert.rejects(() => service.prepareCreateVariables("train", { variables: base }), /CPU.*大于 0/);
 });
 
 test("create sources and command sources are mutually exclusive", async () => {

@@ -1,8 +1,10 @@
+import { createRequestScope } from '../core/request-scope.js';
 import { defaults as developerDefaults } from '../models/dev-form.js';
 import { defaults as trainingDefaults } from '../models/train-form.js';
 /** create owns its local state and event bindings; cross-feature calls are explicit. */
 export function createFeature({ appState, forms, templates, onCreated, ui, signal }) {
-  const state = { createKind: "dev", templateRequest: 0, createRequest: 0 };
+  const state = { createKind: "dev" };
+  const scope = createRequestScope(signal), templateScope = createRequestScope(signal);
   const { $, $$, on, escapeHtml, api, toast, setBusy } = ui;
   const devDefaults = () => developerDefaults(appState.config.region);
   const trainDefaults = () => trainingDefaults(appState.config.region);
@@ -40,7 +42,8 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
 
   async function openCreate(kind, templateName = "") {
     dispose();
-    const requestId = ++state.createRequest;
+    const requestId = scope.next();
+    const selection = templateScope.next();
     state.createKind = kind;
     setBusy($('#submit-create'), false);
     // Hidden developer fields must not block native validation of a training form.
@@ -55,41 +58,43 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     $("#create-modal").showModal();
     try {
       await forms[kind].loadOptions();
-      if (requestId !== state.createRequest || state.createKind !== kind) return;
+      if (!scope.isCurrent(requestId) || !templateScope.isCurrent(selection) || state.createKind !== kind) return;
       if (templateName) {
         variables = (await api(`/api/template?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(templateName)}`)).variables;
-        if (requestId !== state.createRequest || state.createKind !== kind) return;
+        if (!scope.isCurrent(requestId) || !templateScope.isCurrent(selection) || state.createKind !== kind) return;
         $("#create-template").value = templateName;
       }
       variables = forms[kind].applyDefaults(variables, { selectResourcePool: true });
       updateJson(variables);
       fillQuickFields(variables);
     } catch (error) {
-      if (requestId === state.createRequest) toast(error.message, "error");
+      if (scope.isCurrent(requestId) && templateScope.isCurrent(selection)) toast(error.message, "error");
     }
   }
 
   async function loadSelectedTemplate() {
-    state.createRequest++;
-    const requestId = ++state.templateRequest;
+    const requestId = templateScope.next();
     const name = $("#create-template").value;
     const kind = state.createKind;
     try {
       const variables = name
         ? (await api(`/api/template?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}`)).variables
         : kind === 'dev' ? devDefaults() : trainDefaults();
-      if (requestId !== state.templateRequest) return;
+      if (!templateScope.isCurrent(requestId)) return;
       await forms[kind].loadOptions();
-      if (requestId !== state.templateRequest || state.createKind !== kind || $("#create-template").value !== name) return;
+      if (!templateScope.isCurrent(requestId) || state.createKind !== kind || $("#create-template").value !== name) return;
       const prepared = forms[kind].applyDefaults(variables);
       updateJson(prepared);
       fillQuickFields(prepared);
     } catch (error) {
-      if (requestId === state.templateRequest) toast(error.message, "error");
+      if (templateScope.isCurrent(requestId)) toast(error.message, "error");
     }
   }
 
   async function saveCurrentCreateTemplate() {
+    const request = scope.current();
+    const selection = templateScope.current();
+    const kind = state.createKind;
     let variables;
     try { variables = syncQuickFields(); }
     catch (error) { return toast(error.message, "error"); }
@@ -98,10 +103,12 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     if (!name) return;
     if (templates.list().some((item) => item.kind === state.createKind && item.name === name) && !window.confirm(`模板“${name}”已存在，确认覆盖吗？`)) return;
     try {
-      await api("/api/template", { method: "POST", body: JSON.stringify({ kind: state.createKind, name, variables, source: { basedOn: $("#create-template").value || undefined } }) });
+      await api("/api/template", { method: "POST", body: JSON.stringify({ kind, name, variables, source: { basedOn: $("#create-template").value || undefined } }) });
       await templates.loadTemplates();
-      populateTemplateSelect(state.createKind);
-      $("#create-template").value = name;
+      if (scope.isCurrent(request) && templateScope.isCurrent(selection)) {
+        populateTemplateSelect(kind);
+        $("#create-template").value = name;
+      }
       toast(`当前配置已另存为模板“${name}”`);
     } catch (error) { toast(error.message, "error"); }
   }
@@ -124,23 +131,23 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     if (!window.confirm(`确认创建“${name}”吗？这会向星流平台提交真实任务。`)) return;
     const button = $("#submit-create");
     const kind = state.createKind;
-    const requestId = state.createRequest;
+    const requestId = scope.current();
     setBusy(button, true, "正在创建…");
     try {
       await api(`/api/${kind}/create`, { method: "POST", body: JSON.stringify({ variables }) });
-      if (requestId === state.createRequest) $("#create-modal").close();
+      if (scope.isCurrent(requestId)) $("#create-modal").close();
       toast(`${name} 创建请求已提交`);
       await onCreated(kind);
     } catch (error) {
       toast(error.message, "error");
     } finally {
-      if (requestId === state.createRequest || !$('#create-modal').open) setBusy(button, false);
+      if (scope.isCurrent(requestId) || !$('#create-modal').open) setBusy(button, false);
     }
   }
 
   function dispose() {
-    state.createRequest++;
-    state.templateRequest++;
+    scope.invalidate();
+    templateScope.invalidate();
     forms.dev.invalidate();
     forms.train.invalidate();
   }
@@ -181,11 +188,12 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     });
     on($("#create-form"), "change", async (event) => {
       if (event.target.id === "create-template") return;
-      const request = state.createRequest;
+      const request = scope.current();
+      const selection = templateScope.current();
       try {
         await forms[state.createKind].handleChange(event);
-        if (request === state.createRequest) syncQuickFields();
-      } catch (error) { if (request === state.createRequest) toast(error.message, 'error'); }
+        if (scope.isCurrent(request) && templateScope.isCurrent(selection)) syncQuickFields();
+      } catch (error) { if (scope.isCurrent(request) && templateScope.isCurrent(selection)) toast(error.message, 'error'); }
     });
     on($("#create-form"), "submit", submitCreate);
   }
