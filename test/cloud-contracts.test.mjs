@@ -6,6 +6,10 @@ import { KsyunApi } from '../lib/cloud/api.mjs';
 
 const directory = new URL('./fixtures/cloud/', import.meta.url);
 const fixtures = await Promise.all((await readdir(directory)).filter(name => name.endsWith('.json')).map(async name => JSON.parse(await readFile(new URL(name, directory), 'utf8'))));
+// Negative and redaction cases need known, nonempty, unredacted input even when
+// the directory also contains empty or already-sanitized live captures.
+const synthetic = fixtures.find(fixture => fixture.source.startsWith('synthetic:'));
+assert.ok(synthetic, 'The synthetic baseline fixture is required');
 for (const fixture of fixtures) test(`cloud adapter consumes the saved response contracts: ${fixture.source}`, async () => {
   assert.deepEqual(fixture.responses.map(item => item.operation).sort(), Object.keys(READ_CONTRACTS).sort());
   const responses = new Map(fixture.responses.map(item => [item.operation, item.data]));
@@ -23,7 +27,7 @@ for (const fixture of fixtures) test(`cloud adapter consumes the saved response 
 });
 
 test('contracts detect missing provider fields and invalid item types, while allowing extensions and empty lists', () => {
-  const valid = structuredClone(fixtures[0].responses.find(item => item.operation === 'DescribeNotebook').data);
+  const valid = structuredClone(synthetic.responses.find(item => item.operation === 'DescribeNotebook').data);
   assert.doesNotThrow(() => checkReadContract('DescribeNotebook', { ...valid, FutureField: {} }));
   assert.throws(() => checkReadContract('DescribeNotebook', { DescribeNotebook: {} }), /Notebooks.*数组/);
   const invalid = structuredClone(valid);
@@ -35,7 +39,7 @@ test('contracts detect missing provider fields and invalid item types, while all
 });
 
 test('capture only sends allowlisted queries and discards sensitive and unexpected data before saving', async () => {
-  const responses = new Map(fixtures[0].responses.map(item => [item.operation, item.data]));
+  const responses = new Map(synthetic.responses.map(item => [item.operation, item.data]));
   const calls = [];
   const captured = await captureReadContracts({ graphql: async (operation, query, variables) => {
     calls.push(operation);
@@ -48,6 +52,6 @@ test('capture only sends allowlisted queries and discards sensitive and unexpect
   } }, 'test-region');
   assert.equal(calls.length, 5);
   assert.equal(captured.source, 'live-sanitized');
-  assert.doesNotMatch(JSON.stringify(captured), /never-save-this|fixture-dev|Fixture developer/);
+  assert.doesNotMatch(JSON.stringify(captured), /never-save-this|fixture-|Fixture /);
   for (const response of captured.responses) checkReadContract(response.operation, response.data);
 });

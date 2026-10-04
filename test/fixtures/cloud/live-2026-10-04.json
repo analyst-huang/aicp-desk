@@ -1,0 +1,107 @@
+{
+  "formatVersion": 1,
+  "source": "live-sanitized",
+  "capturedAt": "2026-10-04T06:24:05.109Z",
+  "responses": [
+    {
+      "operation": "DescribeNotebook",
+      "data": {
+        "DescribeNotebook": {
+          "Notebooks": [
+            {
+              "NotebookId": "<redacted>",
+              "Name": "<redacted>",
+              "State": "<redacted>"
+            },
+            {
+              "NotebookId": "<redacted>",
+              "Name": "<redacted>",
+              "State": "<redacted>"
+            }
+          ],
+          "TotalCount": 2
+        }
+      }
+    },
+    {
+      "operation": "DescribeTrainJobs",
+      "data": {
+        "DescribeTrainJobs": {
+          "TrainJobSet": [
+            {
+              "TrainJobId": "<redacted>",
+              "TrainJobName": "<redacted>",
+              "JobStatus": {
+                "Status": "<redacted>"
+              }
+            },
+            {
+              "TrainJobId": "<redacted>",
+              "TrainJobName": "<redacted>",
+              "JobStatus": {
+                "Status": "<redacted>"
+              }
+            },
+            {
+              "TrainJobId": "<redacted>",
+              "TrainJobName": "<redacted>",
+              "JobStatus": {
+                "Status": "<redacted>"
+              }
+            }
+          ],
+          "TotalCount": 2530
+        }
+      }
+    },
+    {
+      "operation": "DescribeAllResourcePool",
+      "data": {
+        "DescribeAllResourcePool": {
+          "ResourcePoolSet": [
+            {
+              "ResourcePoolId": "<redacted>",
+              "ResourcePoolName": "<redacted>"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operation": "AicpGetAccountAllProjectList",
+      "data": {
+        "AicpGetAccountAllProjectList": {
+          "ListProjectResult": {
+            "ProjectList": [
+              {
+                "ProjectId": 0,
+                "ProjectName": "<redacted>"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "operation": "DescribeAicpImages",
+      "data": {
+        "DescribeAicpImages": {
+          "ImageSet": [
+            {
+              "ImageId": "<redacted>",
+              "ImageName": "<redacted>"
+            },
+            {
+              "ImageId": "<redacted>",
+              "ImageName": "<redacted>"
+            },
+            {
+              "ImageId": "<redacted>",
+              "ImageName": "<redacted>"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
