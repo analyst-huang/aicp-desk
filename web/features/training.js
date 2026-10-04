@@ -70,7 +70,7 @@ export function createFeature({ appState, markResourceRefresh, performResourceAc
       if (trainAction) return performResourceAction("train", trainAction.dataset.trainAction, trainAction.dataset.id, trainAction.dataset.name, trainAction);
     });
     on($("#train-mine"), "change", () => { deactivate(); loadTrain(); });
-    on($("#train-status"), "change", loadTrain);
+    on($("#train-status"), "change", () => { deactivate(); loadTrain(); });
   }
 
   return { bind, deactivate, dispose: deactivate, loadTrain };

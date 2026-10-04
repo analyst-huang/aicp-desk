@@ -65,7 +65,7 @@ export function toVariables(fields, base) {
   variables.Roles[0].ResourceConfig.GPUNumber = variables.Roles[0].ResourceConfig.GPUType ? Number(fields.gpuNumber || 0) : 0;
   variables.Roles[0].ResourceConfig.CPUNum = Number(fields.cpu || 0);
   variables.Roles[0].ResourceConfig.Memory = Number(fields.memory || 0);
-  variables.JobRunOnCPU = fields.jobCpu || !variables.Roles[0].ResourceConfig.GPUType;
+  variables.JobRunOnCPU = fields.jobCpu;
   variables.StorageConfigs = fields.storageConfigs;
   if (String(variables.Framework).toLowerCase() === "ray") {
     variables.EntryPointCommand = fields.command;
@@ -101,7 +101,7 @@ export function fromVariables(variables) {
     gpuNumber: resource.GPUNumber ?? 0,
     cpu: resource.CPUNum ?? 8,
     memory: resource.Memory ?? 16,
-    jobCpu: Boolean(variables.JobRunOnCPU || !resource.GPUType),
+    jobCpu: variables.JobRunOnCPU ?? !(variables.Roles ?? []).some(item => item.ResourceConfig?.GPUType),
     storageConfigs: variables.StorageConfigs || [],
     command: String(variables.Framework).toLowerCase() === 'ray' ? variables.EntryPointCommand || '' : role.RunCommand || '',
   });

@@ -1,9 +1,10 @@
 import { fromVariables, toVariables } from '../models/dev-form.js';
 import { renderRepeater } from '../core/repeaters.js';
+import { retainSelectValue, validateSelectValue } from '../core/select-value.js';
 /** devForm owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, syncQuickFields, ui, signal }) {
+export function createFeature({ appState, refreshOptions, ui, signal }) {
   let generation = 0;
-  const state = { devOptions: null, devImageRepos: [], devImageTags: [], devResourceRequest: 0, devNodeRequest: 0, devNodes: [] };
+  const state = { devOptions: null, devImageRepos: [], devImageTags: [], devOptionsRequest: 0, devImageRepoRequest: 0, devImageTagRequest: 0, devResourceRequest: 0, devNodeRequest: 0, devNodes: [] };
   const { $, $$, on, escapeHtml, api, toast } = ui;
 
   function currentDevImageSource() {
@@ -56,6 +57,7 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
     const thirdParty = currentDevImageSource() === 2;
     $("#dev-aicp-image-fields").classList.toggle("hidden", thirdParty);
     $("#dev-third-image-fields").classList.toggle("hidden", !thirdParty);
+    $("#dev-third-image-fields").disabled = !thirdParty;
     if (!thirdParty) renderDevImageOptions();
   }
 
@@ -71,16 +73,14 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
     const select = $("#dev-project");
     select.innerHTML = '<option value="">请选择项目</option>' + projects
       .map((item) => `<option value="${escapeHtml(item.ProjectId)}">${escapeHtml(item.ProjectName || `项目 ${item.ProjectId}`)} · ID ${escapeHtml(item.ProjectId)}</option>`).join("");
-    const requested = selectedId === undefined || selectedId === null ? "" : String(selectedId);
-    select.value = projects.some((item) => String(item.ProjectId) === requested) ? requested : "";
-    if (select.value === "" && projects.length) select.value = String(projects[0].ProjectId);
+    retainSelectValue(select, selectedId, `项目“${selectedId}”当前不可用，请重新选择`);
   }
 
   function normalizeDevProject(variables) {
     const projects = state.devOptions?.projects ?? [];
-    if (!projects.length) return variables;
-    const selected = projects.find((item) => String(item.ProjectId) === String(variables.ProjectId));
-    variables.ProjectId = Number((selected ?? projects[0]).ProjectId);
+    if (projects.length && (variables.ProjectId == null || variables.ProjectId === '')) {
+      variables.ProjectId = Number(projects[0].ProjectId);
+    }
     return variables;
   }
 
@@ -105,7 +105,7 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
     const types = [...new Set([...(queue?.GpuModels ?? []).map((item) => item.Model), ...(queue?.IntanceModels ?? [])].filter(Boolean))];
     const select = $("#dev-gpu-type");
     select.innerHTML = '<option value="">不使用 GPU</option>' + types.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
-    select.value = types.includes(selectedType) ? selectedType : "";
+    retainSelectValue(select, selectedType, `GPU 型号“${selectedType}”在当前队列中不可用，请重新选择`);
     if (!select.value) $("#dev-gpu-number").value = 0;
   }
 
@@ -121,6 +121,10 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
   function renderStorageRows(items = []) {
     const container = $("#dev-storage-rows");
     renderRepeater(container, items, (item) => `<div class="repeater-row storage"><label>存储配置<select data-storage-id>${storageOptions(item.StorageConfigId)}</select></label><label>挂载用途<select data-storage-kind><option value="DataSet" ${item.StorageConfigType === "DataSet" ? "selected" : ""}>数据集</option><option value="Output" ${item.StorageConfigType === "Output" ? "selected" : ""}>输出存储</option></select></label><label>容器挂载路径<input data-storage-path value="${escapeHtml(item.MountPath || "")}" placeholder="/share/data"></label><label>协议<select data-storage-protocol><option value="" ${!item.MountProtocol ? "selected" : ""}>自动</option><option value="NFS" ${item.MountProtocol === "NFS" ? "selected" : ""}>NFS</option><option value="POSIX" ${item.MountProtocol === "POSIX" ? "selected" : ""}>POSIX</option></select></label><button type="button" class="icon-button" data-remove-row aria-label="删除">×</button></div>`, "暂未挂载存储配置");
+    $$('[data-storage-id]', container).forEach((select, index) => {
+      const id = items[index].StorageConfigId;
+      retainSelectValue(select, id, `挂载配置“${id}”当前不可用，请重新选择或删除此挂载`);
+    });
   }
 
   function renderServiceRows(items = []) {
@@ -169,7 +173,9 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
   }
 
   function updateSshFields() {
-    $("#dev-ssh-fields").classList.toggle("hidden", !$("#dev-enable-ssh").checked);
+    const enabled = $("#dev-enable-ssh").checked;
+    $("#dev-ssh-fields").classList.toggle("hidden", !enabled);
+    $("#dev-ssh-fields").disabled = !enabled;
     updateEipVisibility();
   }
 
@@ -210,18 +216,25 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
     }
   }
 
+  function renderDevNodes(nodes, selectedIp, message, label) {
+    const select = $('#dev-affinity-ip');
+    select.innerHTML = '<option value="">不指定节点</option>' + nodes.map((item) => `<option value="${escapeHtml(item.InstanceIp)}">${escapeHtml(item.InstanceName || "节点")} · ${escapeHtml(item.InstanceIp)}</option>`).join('');
+    retainSelectValue(select, selectedIp, message, label);
+    if (selectedIp) select.closest('details').open = true;
+  }
+
   async function refreshDevNodes(selectedIp = $("#dev-affinity-ip").value) {
     const requestId = ++state.devNodeRequest;
     const queue = selectedQueue();
     const select = $("#dev-affinity-ip");
     const status = $("#dev-affinity-status");
+    state.devNodes = [];
     if (!queue) {
-      state.devNodes = [];
-      select.innerHTML = '<option value="">不指定节点</option>';
+      renderDevNodes([], selectedIp, '请先选择队列以检查固定节点', '待检查');
       status.textContent = "选择队列后加载可用节点";
       return;
     }
-    select.innerHTML = `<option value="">正在检查可用节点……</option>${selectedIp ? `<option value="${escapeHtml(selectedIp)}" selected>${escapeHtml(selectedIp)} · 正在检查</option>` : ""}`;
+    renderDevNodes([], selectedIp, '固定节点正在检查，请稍后重试', '正在检查');
     status.textContent = "正在按当前队列和资源规格检查节点……";
     try {
       const params = new URLSearchParams({
@@ -235,79 +248,106 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
       const nodes = await api(`/api/dev/nodes?${params}`);
       if (requestId !== state.devNodeRequest) return;
       state.devNodes = nodes;
-      const selectedNode = nodes.find((item) => item.InstanceIp === selectedIp);
-      select.innerHTML = '<option value="">不指定节点</option>' + nodes.map((item) => `<option value="${escapeHtml(item.InstanceIp)}">${escapeHtml(item.InstanceName || "节点")} · ${escapeHtml(item.InstanceIp)}</option>`).join("");
-      select.value = selectedNode?.InstanceIp || "";
-      if (selectedIp && !selectedNode) {
-        status.textContent = `模板节点 ${selectedIp} 不满足当前规格，已改为不指定节点`;
-        toast(`模板中的固定节点 ${selectedIp} 当前不可用，已自动改为“不指定节点”`);
-        try { syncQuickFields(); } catch {}
+      // A user can explicitly clear the fixed node while its lookup is pending.
+      const currentIp = select.value;
+      const unavailable = `固定节点 ${currentIp} 不满足当前规格，请重新选择或取消固定节点`;
+      renderDevNodes(nodes, currentIp, unavailable);
+      if (currentIp && !nodes.some(item => item.InstanceIp === currentIp)) {
+        status.textContent = unavailable;
       } else {
         status.textContent = nodes.length ? `当前规格有 ${nodes.length} 个可用节点；不选择则由平台自动调度` : "当前规格没有可指定节点；将由平台自动调度";
       }
     } catch (error) {
       if (requestId !== state.devNodeRequest) return;
-      select.innerHTML = '<option value="">不指定节点</option>';
+      renderDevNodes([], select.value, '固定节点检查失败，请刷新选项重试或取消固定节点', '检查失败');
       status.textContent = `节点列表加载失败：${error.message}`;
     }
   }
 
   async function loadImageTags(registryId, repoId, selectedTag = "") {
     const current = generation;
+    const request = ++state.devImageTagRequest;
     const select = $("#dev-image-tag");
+    state.devImageTags = [];
+    select.innerHTML = '<option value="">正在加载版本……</option>';
+    retainSelectValue(select, selectedTag, '镜像版本尚未检查，请等待加载完成', '待检查');
     if (!registryId || !repoId) {
-      state.devImageTags = [];
-      select.innerHTML = '<option value="">请先选择镜像仓库</option>';
+      select.options[0].textContent = '请先选择镜像仓库';
       return;
     }
-    select.innerHTML = '<option value="">正在加载版本……</option>';
-    const response = await api(`/api/dev/image-tags?registryId=${encodeURIComponent(registryId)}&repoId=${encodeURIComponent(repoId)}`);
-    if (current !== generation || signal.aborted) return;
-    if ($("#dev-image-registry").value !== registryId || $("#dev-image-repo").value !== repoId) return;
-    state.devImageTags = response;
-    select.innerHTML = '<option value="">请选择镜像版本</option>' + state.devImageTags.map((item) => `<option value="${escapeHtml(item.TagId)}">${escapeHtml(item.TagName)}</option>`).join("");
-    select.value = selectedTag || "";
+    const isCurrent = () => current === generation && request === state.devImageTagRequest && !signal.aborted
+      && $('#dev-image-registry').value === registryId && $('#dev-image-repo').value === repoId;
+    try {
+      const response = await api(`/api/dev/image-tags?registryId=${encodeURIComponent(registryId)}&repoId=${encodeURIComponent(repoId)}`);
+      if (!isCurrent()) return;
+      state.devImageTags = response;
+      select.innerHTML = '<option value="">请选择镜像版本</option>' + state.devImageTags.map((item) => `<option value="${escapeHtml(item.TagId)}">${escapeHtml(item.TagName)}</option>`).join("");
+      retainSelectValue(select, selectedTag, '镜像版本当前不可用，请重新选择');
+    } catch (error) {
+      if (!isCurrent()) return;
+      select.innerHTML = '<option value="">版本加载失败，请重新选择仓库或刷新选项</option>';
+      retainSelectValue(select, selectedTag, '镜像版本检查失败，请重新选择仓库或刷新选项', '检查失败');
+      toast(`镜像版本加载失败：${error.message}`, 'error');
+    }
   }
 
   async function loadImageRepos(registryId, selectedRepo = "", selectedTag = "") {
     const current = generation;
+    const request = ++state.devImageRepoRequest;
+    state.devImageTagRequest++;
+    state.devImageRepos = [];
+    state.devImageTags = [];
+    $('#dev-image-tag').innerHTML = '<option value="">请先选择镜像仓库</option>';
+    retainSelectValue($('#dev-image-tag'), selectedTag, '请先选择可用的镜像仓库', '待检查');
     const select = $("#dev-image-repo");
+    select.innerHTML = '<option value="">正在加载仓库……</option>';
+    retainSelectValue(select, selectedRepo, '镜像仓库尚未检查，请等待加载完成', '待检查');
     if (!registryId) {
-      state.devImageRepos = [];
-      select.innerHTML = '<option value="">请先选择镜像配置</option>';
-      await loadImageTags("", "");
+      select.options[0].textContent = '请先选择镜像配置';
       return;
     }
-    select.innerHTML = '<option value="">正在加载仓库……</option>';
-    const response = await api(`/api/dev/image-repos?registryId=${encodeURIComponent(registryId)}`);
-    if (current !== generation || signal.aborted) return;
-    if ($("#dev-image-registry").value !== registryId) return;
-    state.devImageRepos = response;
-    select.innerHTML = '<option value="">请选择镜像仓库</option>' + state.devImageRepos.map((item) => `<option value="${escapeHtml(item.RepoId)}">${escapeHtml(item.RepoName)}</option>`).join("");
-    select.value = selectedRepo || "";
-    await loadImageTags(registryId, select.value, selectedTag);
+    const isCurrent = () => current === generation && request === state.devImageRepoRequest && !signal.aborted
+      && $('#dev-image-registry').value === registryId;
+    try {
+      const response = await api(`/api/dev/image-repos?registryId=${encodeURIComponent(registryId)}`);
+      if (!isCurrent()) return;
+      state.devImageRepos = response;
+      select.innerHTML = '<option value="">请选择镜像仓库</option>' + state.devImageRepos.map((item) => `<option value="${escapeHtml(item.RepoId)}">${escapeHtml(item.RepoName)}</option>`).join("");
+      retainSelectValue(select, selectedRepo, '镜像仓库当前不可用，请重新选择');
+      if (select.validity.customError) return;
+      await loadImageTags(registryId, select.value, selectedTag);
+    } catch (error) {
+      if (!isCurrent()) return;
+      select.innerHTML = '<option value="">仓库加载失败，请重新选择镜像配置或刷新选项</option>';
+      retainSelectValue(select, selectedRepo, '镜像仓库检查失败，请重新选择镜像配置或刷新选项', '检查失败');
+      toast(`镜像仓库加载失败：${error.message}`, 'error');
+    }
+  }
+
+  function renderOptionsStatus() {
+    const status = $('#dev-options-status');
+    status.className = 'create-loading ready';
+    status.textContent = `已加载：${state.devOptions.projects?.length ?? 0} 个项目、${state.devOptions.images?.official?.length ?? 0} 个官方镜像、${state.devOptions.images?.personal?.length ?? 0} 个自定义镜像、${state.devOptions.queues?.length ?? 0} 个队列、${state.devOptions.storageConfigs?.length ?? 0} 项存储配置、${state.devOptions.availableAddresses?.length ?? 0} 个可用公网 EIP`;
   }
 
   async function loadDevCreateOptions({ force = false } = {}) {
     const current = generation;
     const status = $("#dev-options-status");
-    if (state.devOptions && !force) return state.devOptions;
+    if (state.devOptions && !force) {
+      renderOptionsStatus();
+      return state.devOptions;
+    }
+    const request = ++state.devOptionsRequest;
     status.className = "create-loading";
     status.textContent = "正在从金山云加载镜像、资源组、队列和存储配置……";
     try {
       const response = await api(`/api/dev/create-options?region=${encodeURIComponent(appState.config.region)}`);
-      if (current !== generation || signal.aborted) return;
+      if (current !== generation || request !== state.devOptionsRequest || signal.aborted) return;
       state.devOptions = response;
-      status.className = "create-loading ready";
-      status.textContent = `已加载：${state.devOptions.projects?.length ?? 0} 个项目、${state.devOptions.images?.official?.length ?? 0} 个官方镜像、${state.devOptions.images?.personal?.length ?? 0} 个自定义镜像、${state.devOptions.queues?.length ?? 0} 个队列、${state.devOptions.storageConfigs?.length ?? 0} 项存储配置、${state.devOptions.availableAddresses?.length ?? 0} 个可用公网 EIP`;
-      renderProjectOptions();
-      renderPoolOptions();
-      renderRegistryOptions();
-      renderDevImageOptions();
-      renderEipOptions();
+      renderOptionsStatus();
       return state.devOptions;
     } catch (error) {
-      if (current !== generation || signal.aborted) return;
+      if (current !== generation || request !== state.devOptionsRequest || signal.aborted) return;
       status.className = "create-loading error";
       status.textContent = `创建选项加载失败：${error.message}`;
       throw error;
@@ -325,7 +365,6 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
     renderDevImageMode();
     if (imageSource !== 2) renderDevImageOptions(fields.imageSelect);
     renderRegistryOptions(fields.imageRegistry);
-    if (imageSource === 2) loadImageRepos(fields.imageRegistry, fields.imageRepo, fields.imageTag).catch((error) => toast(error.message, "error"));
     $("#dev-autosave").checked = fields.autosave;
     $("#dev-autosave-type").value = fields.autosaveType;
     $("#dev-autosave-instance").value = fields.autosaveInstance;
@@ -358,16 +397,18 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
     updatePublicNetworkStatus();
     refreshDevResourceInfo();
     refreshDevNodes(affinityIp);
+    if (imageSource === 2) return loadImageRepos(fields.imageRegistry, fields.imageRepo, fields.imageTag);
   }
 
   function invalidate() {
     generation++;
+    state.devOptionsRequest++; state.devImageRepoRequest++; state.devImageTagRequest++;
     state.devResourceRequest++; state.devNodeRequest++;
   }
 
   function resetOptions() { invalidate(); state.devOptions = null; state.devNodes = []; }
 
-  function readVariables(base) {
+  function readVariables(base, options) {
     return toVariables({
       region: appState.config.region, name: $("#create-name").value,
       project: $("#dev-project").value,
@@ -399,7 +440,7 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
       imageSource: currentDevImageSource(), allocationUnavailable: $("#dev-allocation-id").dataset.unavailableValue || '',
       envs: $$(".repeater-row", $("#dev-env-rows")).map(row => ({ Name: $("[data-env-name]", row).value.trim(), Value: $("[data-env-value]", row).value })).filter(item => item.Name),
       storageConfigs: readStorageRows(), serviceConfigs: readServiceRows(),
-    }, base);
+    }, base, options);
   }
 
   function addRow(kind) {
@@ -436,6 +477,7 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
   }
 
   async function handleChange(event) {
+    if (event.target.id === 'dev-allocation-id') event.target.dataset.unavailableValue = '';
     if (event.target.name === "dev-image-source") renderDevImageMode();
     if (event.target.id === "dev-image-select") renderImageDetail();
     if (event.target.id === "dev-image-registry") await loadImageRepos(event.target.value);
@@ -462,16 +504,19 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
     if (event.target.id === "dev-affinity-cpu" && event.target.checked) {
       $("#dev-affinity-gpu").checked = false;
       $("#dev-affinity-ip").value = "";
+      validateSelectValue($("#dev-affinity-ip"));
     }
     if (event.target.id === "dev-affinity-gpu" && event.target.checked) {
       $("#dev-affinity-cpu").checked = false;
       $("#dev-affinity-ip").value = "";
+      validateSelectValue($("#dev-affinity-ip"));
     }
     if (event.target.id === "dev-affinity-ip" && event.target.value) {
       $("#dev-affinity-cpu").checked = false;
       $("#dev-affinity-gpu").checked = false;
     }
     if (event.target.matches("[data-storage-id]")) {
+      validateSelectValue(event.target);
       const item = state.devOptions?.storageConfigs?.find((entry) => entry.StorageConfigId === event.target.value);
       const row = event.target.closest(".repeater-row");
       const path = $("[data-storage-path]", row);
@@ -482,19 +527,10 @@ export function createFeature({ appState, syncQuickFields, ui, signal }) {
   }
 
   function bind() {
-    on($("#refresh-dev-options"), "click", async () => {
-      const current = generation;
-      let variables;
-      try { variables = syncQuickFields(); }
-      catch (error) { return toast(error.message, "error"); }
-      try {
-        state.devOptions = null;
-        await loadDevCreateOptions({ force: true });
-        if (current !== generation) return;
-        fillDevFields(variables);
-        toast("金山云创建选项已刷新");
-      } catch (error) { if (current === generation) toast(error.message, "error"); }
-    });
+    on($("#refresh-dev-options"), "click", refreshOptions);
+    for (const id of ['dev-project', 'dev-gpu-type', 'dev-affinity-ip', 'dev-image-repo', 'dev-image-tag']) {
+      on($(`#${id}`), 'change', event => validateSelectValue(event.currentTarget));
+    }
   }
 
   return { bind, invalidate, resetOptions, dispose: invalidate, readVariables, applyDefaults, addRow, handleInput, handleChange,

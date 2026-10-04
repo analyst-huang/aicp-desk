@@ -1,5 +1,8 @@
+import { createRequestScope } from '../core/request-scope.js';
+
 /** saveImage owns its local state and event bindings; cross-feature calls are explicit. */
 export function createFeature({ appState, loadDev, ui, signal }) {
+  const scope = createRequestScope(signal);
   const state = { saveImageDev: null, saveImageOptions: null, saveImageNamespaces: [], saveImageRepositories: [], saveImageRequest: 0 };
   const { $, $$, on, escapeHtml, api, toast, setBusy } = ui;
 
@@ -135,7 +138,7 @@ export function createFeature({ appState, loadDev, ui, signal }) {
   }
 
   async function loadSaveImageOptions() {
-    const request = ++state.saveImageRequest;
+    const request = scope.current();
     state.saveImageOptions = null;
     state.saveImageNamespaces = [];
     state.saveImageRepositories = [];
@@ -143,7 +146,7 @@ export function createFeature({ appState, loadDev, ui, signal }) {
     const params = new URLSearchParams({ region: appState.config.region || "" });
     try {
       const options = await api(`/api/dev/save-image-options?${params}`);
-      if (request !== state.saveImageRequest) return;
+      if (!scope.isCurrent(request)) return;
       state.saveImageOptions = options;
       renderSaveImageInstances();
       const namespaceCount = options.personalNamespaces?.length ?? 0;
@@ -152,13 +155,18 @@ export function createFeature({ appState, loadDev, ui, signal }) {
       setSaveImageStatus(`${configText} · ${namespaceCount} 个个人命名空间 · ${instanceCount} 个企业版实例`, "ready");
       await updateSaveImageType();
     } catch (error) {
-      if (request !== state.saveImageRequest) return;
+      if (!scope.isCurrent(request)) return;
       setSaveImageStatus(`读取失败：${error.message}`, "error");
       throw error;
     }
   }
 
   async function openSaveImage(item) {
+    dispose();
+    const request = scope.current();
+    const button = $("#submit-save-image");
+    setBusy(button, false);
+    button.disabled = true;
     state.saveImageDev = item;
     $("#save-image-dev-name").textContent = item.name;
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 12);
@@ -174,12 +182,17 @@ export function createFeature({ appState, loadDev, ui, signal }) {
     $("#save-image-description").value = "";
     $("#save-image-modal").showModal();
     try { await loadSaveImageOptions(); }
-    catch (error) { toast(error.message, "error"); }
+    catch (error) { if (scope.isCurrent(request)) toast(error.message, "error"); }
+    finally { if (scope.isCurrent(request)) button.disabled = !state.saveImageOptions; }
   }
 
   async function submitSaveImage(event) {
     event.preventDefault();
+    const button = $("#submit-save-image");
+    if (button.disabled) return;
     if (!state.saveImageDev) return toast("未选择开发机", "error");
+    const request = scope.current();
+    const selectedDev = state.saveImageDev;
     const imageType = currentSaveImageType();
     const repoInput = $("#save-image-repo").value.trim();
     const variables = {
@@ -198,23 +211,24 @@ export function createFeature({ appState, loadDev, ui, signal }) {
     } else if (!state.saveImageOptions?.personalConfigured) {
       variables.Password = $("#save-image-password").value;
     }
-    if (!window.confirm(`确认从运行中的开发机“${state.saveImageDev.name}”保存镜像“${variables.ImageName}”吗？保存期间请勿写入数据。`)) return;
-    const button = $("#submit-save-image");
+    if (!window.confirm(`确认从运行中的开发机“${selectedDev.name}”保存镜像“${variables.ImageName}”吗？保存期间请勿写入数据。`)) return;
     setBusy(button, true, "正在提交…");
     try {
-      const payload = await api("/api/dev/save-image", { method: "POST", body: JSON.stringify({ selector: state.saveImageDev.id, variables }) });
-      $("#save-image-modal").close();
-      state.saveImageOptions = null;
+      const payload = await api("/api/dev/save-image", { method: "POST", body: JSON.stringify({ selector: selectedDev.id, variables }) });
+      if (scope.isCurrent(request)) {
+        $("#save-image-modal").close();
+        state.saveImageOptions = null;
+      }
       toast(`镜像保存请求已提交${payload.result?.ImageId ? `：${payload.result.ImageId}` : ""}`);
       await loadDev();
     } catch (error) {
       toast(error.message, "error");
     } finally {
-      setBusy(button, false);
+      if (scope.isCurrent(request)) setBusy(button, false);
     }
   }
 
-  function dispose() { state.saveImageRequest++; }
+  function dispose() { scope.invalidate(); state.saveImageRequest++; }
 
   function bind() {
     on($("#save-image-modal"), "close", dispose);

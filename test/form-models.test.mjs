@@ -52,6 +52,25 @@ test('developer form distinguishes project zero from a missing project', async (
   assert.equal(dev.toVariables(fields, base).ProjectId, 0);
 });
 
+test('developer refresh can capture incomplete fields without weakening submission validation', async () => {
+  const base = await example('dev');
+  const original = structuredClone(base);
+  const fields = dev.fromVariables(base);
+  Object.assign(fields, { project: '', name: 'edited while refreshing', enableSsh: true, publicSsh: true, allocationId: '', allocationUnavailable: 'unavailable-eip' });
+  const draft = dev.toVariables(fields, base, { allowIncomplete: true });
+  assert.equal(draft.ProjectId, null);
+  assert.equal(draft.DisplayName, 'edited while refreshing');
+  assert.equal(draft.EnablePublicNetworkSsh, true);
+  assert.equal(draft.AllocationId, 'unavailable-eip');
+  assert.deepEqual(base, original);
+  assert.throws(() => dev.toVariables(fields, base), /项目/);
+  fields.project = '0';
+  assert.throws(() => dev.toVariables(fields, base), /unavailable-eip.*不可用/);
+  fields.allocationUnavailable = '';
+  assert.equal(dev.toVariables(fields, base, { allowIncomplete: true }).AllocationId, '');
+  assert.throws(() => dev.toVariables(fields, base), /请选择.*EIP/);
+});
+
 test('developer public network and SSH settings remove stale dependent values', async () => {
   const base = await example('dev');
   const fields = dev.fromVariables(base);
@@ -109,4 +128,72 @@ test('defaults and decoded rows are isolated across dialogs', () => {
   const fields = train.fromVariables(first);
   fields.storageConfigs.push({ StorageConfigId: 'new' });
   assert.deepEqual(first.StorageConfigs, []);
+});
+
+test('personal autosave preserves its destination and advanced configuration during edits', async () => {
+  const base = await example('dev');
+  base.AutoSave = true;
+  base.AutoSaveConfig = { ImageType: 'Personal', Namespace: 'images', ImageRepo: 'snapshots', FutureOption: { keep: true } };
+  const original = structuredClone(base);
+  const fields = dev.fromVariables(base);
+  fields.name = 'renamed';
+  const result = dev.toVariables(fields, base);
+  assert.equal(result.AutoSave, true);
+  assert.deepEqual(result.AutoSaveConfig, original.AutoSaveConfig);
+  result.AutoSaveConfig.FutureOption.keep = false;
+  assert.deepEqual(base, original);
+});
+
+test('switching autosave registry types removes the old destination and credentials, while disabling removes config', async () => {
+  const base = await example('dev');
+  base.AutoSave = true;
+  base.AutoSaveConfig = { ImageType: 'Personal', Namespace: 'personal', ImageRepo: 'snapshots', Password: 'old-password', FutureOption: 'keep' };
+  const fields = dev.fromVariables(base);
+  Object.assign(fields, { autosaveType: 'Official', autosaveInstance: 'instance', autosaveUsername: 'user', autosavePassword: 'new-password' });
+  const official = dev.toVariables(fields, base);
+  assert.deepEqual(official.AutoSaveConfig, { ImageType: 'Official', OfficialInstance: 'instance', UserName: 'user', Password: 'new-password', FutureOption: 'keep' });
+  official.AutoSaveConfig.Namespace = 'enterprise';
+  official.AutoSaveConfig.ImageRepo = 'enterprise-repo';
+  official.AutoSaveConfig.OfficialInstanceName = 'Enterprise';
+  const back = dev.fromVariables(official);
+  back.autosaveType = 'Personal';
+  const personal = dev.toVariables(back, official);
+  assert.deepEqual(personal.AutoSaveConfig, { ImageType: 'Personal', FutureOption: 'keep' });
+  back.autosave = false;
+  const disabled = dev.toVariables(back, personal);
+  assert.equal(disabled.AutoSave, false);
+  assert.equal(disabled.AutoSaveConfig, undefined);
+});
+
+test('CPU master and GPU workers retain their task type and infer defaults from every role', async () => {
+  const base = await example('train');
+  const worker = { ...structuredClone(base.Roles[0]), RoleName: 'Worker' };
+  Object.assign(base.Roles[0].ResourceConfig, { GPUType: '', GPUNumber: 0 });
+  base.Roles.push(worker);
+  base.JobRunOnCPU = false;
+  const original = structuredClone(base);
+  const fields = train.fromVariables(base);
+  assert.equal(fields.jobCpu, false);
+  fields.cpu = '12';
+  const result = train.toVariables(fields, base);
+  assert.equal(result.JobRunOnCPU, false);
+  assert.deepEqual(result.Roles[1], worker);
+  assert.deepEqual(base, original);
+  delete base.JobRunOnCPU;
+  assert.equal(train.fromVariables(base).jobCpu, false);
+  Object.assign(base.Roles[1].ResourceConfig, { GPUType: '', GPUNumber: 0 });
+  assert.equal(train.fromVariables(base).jobCpu, true);
+});
+
+test('an explicit training task type can be edited even when its first role has no GPU', async () => {
+  const base = await example('train');
+  Object.assign(base.Roles[0].ResourceConfig, { GPUType: '', GPUNumber: 0 });
+  for (const jobCpu of [false, true]) {
+    base.JobRunOnCPU = jobCpu;
+    const fields = train.fromVariables(base);
+    assert.equal(fields.jobCpu, jobCpu);
+    assert.equal(train.toVariables(fields, base).JobRunOnCPU, jobCpu);
+    fields.jobCpu = !jobCpu;
+    assert.equal(train.toVariables(fields, base).JobRunOnCPU, !jobCpu);
+  }
 });

@@ -3,7 +3,8 @@ import { defaults as developerDefaults } from '../models/dev-form.js';
 import { defaults as trainingDefaults } from '../models/train-form.js';
 /** create owns its local state and event bindings; cross-feature calls are explicit. */
 export function createFeature({ appState, forms, templates, onCreated, ui, signal }) {
-  const state = { createKind: "dev" };
+  const state = { createKind: "dev", draftLoading: false, draftReady: false, submitting: false };
+  let retryDraft = null;
   const scope = createRequestScope(signal), templateScope = createRequestScope(signal);
   const { $, $$, on, escapeHtml, api, toast, setBusy } = ui;
   const devDefaults = () => developerDefaults(appState.config.region);
@@ -22,13 +23,14 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     $("#create-validation").textContent = "参数已载入，创建前会再次检查";
   }
 
-  function fillQuickFields(variables) {
+  async function fillQuickFields(variables) {
     $('#create-name').value = variables[state.createKind === 'dev' ? 'DisplayName' : 'TrainJobName'] || '';
-    forms[state.createKind].fillFields(variables);
+    await forms[state.createKind].fillFields(variables);
   }
 
-  function syncQuickFields() {
-    const variables = forms[state.createKind].readVariables(parseCreateJson());
+  function syncQuickFields(options) {
+    if (state.draftLoading || !state.draftReady) throw new Error('创建参数尚未加载完成，请稍后重试');
+    const variables = forms[state.createKind].readVariables(parseCreateJson(), options);
     updateJson(variables);
     return variables;
   }
@@ -40,58 +42,102 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
       .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join("");
   }
 
+  function updateControls() {
+    for (const kind of ['dev', 'train']) {
+      $(`#${kind}-quick-fields`).disabled = kind !== state.createKind || state.draftLoading;
+    }
+    $('#create-name').disabled = state.draftLoading;
+    $('#create-json').disabled = state.draftLoading;
+    $('#save-create-template').disabled = state.draftLoading || !state.draftReady;
+    $('#submit-create').disabled = state.draftLoading || !state.draftReady || state.submitting;
+  }
+
+  async function loadDraft(readVariables, { selectResourcePool = false, applyDefaults = true } = {}) {
+    const selection = templateScope.next();
+    const kind = state.createKind;
+    retryDraft = () => loadDraft(readVariables, { selectResourcePool, applyDefaults });
+    forms[kind].invalidate();
+    state.draftReady = false;
+    state.draftLoading = true;
+    updateControls();
+    $('#create-validation').textContent = '正在加载创建参数……';
+    try {
+      await forms[kind].loadOptions();
+      if (!templateScope.isCurrent(selection)) return;
+      let variables = await readVariables();
+      if (!templateScope.isCurrent(selection)) return;
+      if (applyDefaults) variables = forms[kind].applyDefaults(variables, { selectResourcePool });
+      updateJson(variables);
+      await fillQuickFields(variables);
+      if (templateScope.isCurrent(selection)) {
+        state.draftReady = true;
+        return true;
+      }
+    } catch (error) {
+      if (templateScope.isCurrent(selection)) {
+        $('#create-validation').textContent = `参数加载失败：${error.message}`;
+        toast(error.message, 'error');
+      }
+    } finally {
+      if (templateScope.isCurrent(selection)) {
+        state.draftLoading = false;
+        updateControls();
+      }
+    }
+  }
+
+  function templateVariables(kind, name) {
+    return name
+      ? api(`/api/template?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}`).then(record => record.variables)
+      : kind === 'dev' ? devDefaults() : trainDefaults();
+  }
+
   async function openCreate(kind, templateName = "") {
     dispose();
-    const requestId = scope.next();
-    const selection = templateScope.next();
+    scope.next();
     state.createKind = kind;
+    state.submitting = false;
     setBusy($('#submit-create'), false);
-    // Hidden developer fields must not block native validation of a training form.
-    $("#dev-project").disabled = kind !== "dev";
     $("#create-title").textContent = kind === "dev" ? "新建开发机" : "新建训练任务";
     $("#create-kind-label").textContent = kind === "dev" ? "Development machine" : "Training job";
     $("#dev-quick-fields").classList.toggle("hidden", kind !== "dev");
     $("#train-quick-fields").classList.toggle("hidden", kind !== "train");
     populateTemplateSelect(kind);
-    let variables = kind === "dev" ? devDefaults() : trainDefaults();
-    updateJson(variables);
+    $('#create-template').value = templateName;
+    $('#create-name').value = '';
+    updateJson(kind === 'dev' ? devDefaults() : trainDefaults());
     $("#create-modal").showModal();
-    try {
-      await forms[kind].loadOptions();
-      if (!scope.isCurrent(requestId) || !templateScope.isCurrent(selection) || state.createKind !== kind) return;
-      if (templateName) {
-        variables = (await api(`/api/template?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(templateName)}`)).variables;
-        if (!scope.isCurrent(requestId) || !templateScope.isCurrent(selection) || state.createKind !== kind) return;
-        $("#create-template").value = templateName;
-      }
-      variables = forms[kind].applyDefaults(variables, { selectResourcePool: true });
-      updateJson(variables);
-      fillQuickFields(variables);
-    } catch (error) {
-      if (scope.isCurrent(requestId) && templateScope.isCurrent(selection)) toast(error.message, "error");
-    }
+    await loadDraft(() => templateVariables(kind, templateName), { selectResourcePool: true });
   }
 
   async function loadSelectedTemplate() {
-    const requestId = templateScope.next();
     const name = $("#create-template").value;
     const kind = state.createKind;
+    await loadDraft(() => templateVariables(kind, name));
+  }
+
+  async function refreshOptions(kind) {
+    if (!$('#create-modal').open || state.createKind !== kind || state.draftLoading) return;
+    const selection = templateScope.current();
     try {
-      const variables = name
-        ? (await api(`/api/template?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}`)).variables
-        : kind === 'dev' ? devDefaults() : trainDefaults();
-      if (!templateScope.isCurrent(requestId)) return;
-      await forms[kind].loadOptions();
-      if (!templateScope.isCurrent(requestId) || state.createKind !== kind || $("#create-template").value !== name) return;
-      const prepared = forms[kind].applyDefaults(variables);
-      updateJson(prepared);
-      fillQuickFields(prepared);
+      const options = await forms[kind].loadOptions({ force: true });
+      if (!options || !templateScope.isCurrent(selection)) return;
+      let loaded;
+      if (state.draftReady) {
+        // Capture even incomplete edits before rebuilding the selectors; submission still validates.
+        const variables = syncQuickFields({ allowIncomplete: true });
+        loaded = await loadDraft(() => variables, { applyDefaults: false });
+      } else {
+        loaded = await retryDraft?.();
+      }
+      if (loaded) toast(`金山云${kind === 'train' ? '训练' : ''}创建选项已刷新`);
     } catch (error) {
-      if (templateScope.isCurrent(requestId)) toast(error.message, "error");
+      if (templateScope.isCurrent(selection)) toast(error.message, 'error');
     }
   }
 
   async function saveCurrentCreateTemplate() {
+    if (state.draftLoading || !state.draftReady) return;
     const request = scope.current();
     const selection = templateScope.current();
     const kind = state.createKind;
@@ -119,6 +165,8 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
       $("#create-modal").close();
       return;
     }
+    if (state.submitting || state.draftLoading || !state.draftReady) return;
+    if (!$('#create-form').reportValidity()) return;
     let variables;
     try {
       variables = syncQuickFields();
@@ -132,6 +180,7 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     const button = $("#submit-create");
     const kind = state.createKind;
     const requestId = scope.current();
+    state.submitting = true;
     setBusy(button, true, "正在创建…");
     try {
       await api(`/api/${kind}/create`, { method: "POST", body: JSON.stringify({ variables }) });
@@ -141,7 +190,11 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     } catch (error) {
       toast(error.message, "error");
     } finally {
-      if (scope.isCurrent(requestId) || !$('#create-modal').open) setBusy(button, false);
+      if (scope.isCurrent(requestId)) {
+        state.submitting = false;
+        setBusy(button, false);
+        updateControls();
+      }
     }
   }
 
@@ -150,6 +203,9 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     templateScope.invalidate();
     forms.dev.invalidate();
     forms.train.invalidate();
+    retryDraft = null;
+    state.draftReady = false;
+    state.draftLoading = false;
   }
 
   function bind() {
@@ -177,17 +233,23 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     });
     on($("#create-template"), "change", loadSelectedTemplate);
     on($("#save-create-template"), "click", saveCurrentCreateTemplate);
-    on($("#create-json"), "blur", () => {
-      try { fillQuickFields(parseCreateJson()); $("#create-validation").textContent = "JSON 格式正确"; }
+    on($("#create-json"), "blur", async () => {
+      if (state.draftLoading || !$('#create-modal').open) return;
+      try {
+        const variables = parseCreateJson();
+        await loadDraft(() => variables, { applyDefaults: false });
+      }
       catch (error) { $("#create-validation").textContent = error.message; }
     });
     on($("#create-form"), "input", (event) => {
+      if (state.draftLoading || !state.draftReady) return;
       if (event.target.id === "create-json" || event.target.id === "create-template") return;
       if (forms[state.createKind].handleInput(event)) return;
       try { syncQuickFields(); } catch {}
     });
     on($("#create-form"), "change", async (event) => {
-      if (event.target.id === "create-template") return;
+      if (event.target.id === "create-json" || event.target.id === "create-template") return;
+      if (state.draftLoading || !state.draftReady) return;
       const request = scope.current();
       const selection = templateScope.current();
       try {
@@ -198,5 +260,5 @@ export function createFeature({ appState, forms, templates, onCreated, ui, signa
     on($("#create-form"), "submit", submitCreate);
   }
 
-  return { bind, dispose, syncQuickFields, openCreate };
+  return { bind, dispose, syncQuickFields, openCreate, refreshOptions };
 }

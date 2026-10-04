@@ -33,6 +33,22 @@ test("developer start is idempotent", async () => {
   assert.equal(mutations, 0);
 });
 
+for (const [action, state, verb] of [['start', 'stopped', '启动'], ['stop', 'running', '停止']]) {
+  test(`developer ${action} requires an explicit successful platform result and never retries`, async () => {
+    for (const result of [{ Return: false }, undefined, null, {}, { Return: 'true' }, { Return: true }]) {
+      let writes = 0;
+      const service = makeService({
+        listNotebooks: async () => ({ Notebooks: [{ NotebookId: 'kaic-dev', Name: 'dev', State: state }] }),
+        setNotebookStatus: async () => { writes++; return result; },
+      });
+      const run = () => service[`${action}Developer`]('dev');
+      if (result?.Return === true) assert.deepEqual((await run()).result, result);
+      else await assert.rejects(run, result?.Return === false ? new RegExp(`${verb}失败`) : /结果未知/);
+      assert.equal(writes, 1);
+    }
+  });
+}
+
 test("training duplicate names require latest", async () => {
   const service = makeService({
     listTrainJobs: async () => ({ TrainJobSet: [

@@ -17,6 +17,24 @@ test("deepSet supports array paths", () => {
   assert.deepEqual(splitPath("Roles[12].Envs[0].Value"), ["Roles", 12, "Envs", 0, "Value"]);
 });
 
+test("deepSet rejects prototype paths before mutating the target or shared objects", () => {
+  for (const field of ['__proto__.aicpReviewProbe', 'constructor.prototype.aicpReviewProbe', 'nested.__proto__.aicpReviewProbe']) {
+    const target = {};
+    try {
+      assert.throws(() => deepSet(target, field, true), /无效字段路径/);
+      assert.deepEqual(target, {});
+      assert.equal(({}).aicpReviewProbe, undefined);
+    } finally {
+      delete Object.prototype.aicpReviewProbe;
+    }
+  }
+  const inherited = { shared: {} };
+  const target = Object.create(inherited);
+  deepSet(target, 'shared.value', 7);
+  assert.deepEqual(inherited.shared, {});
+  assert.deepEqual(target.shared, { value: 7 });
+});
+
 test("parseScalar recognizes JSON, booleans and numbers", () => {
   assert.equal(parseScalar("true"), true);
   assert.equal(parseScalar("12.5"), 12.5);

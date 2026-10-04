@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import path from "node:path";
 import { AGENT_INSTRUCTIONS } from "../lib/agent-instructions.mjs";
 import { createContext } from "../lib/context.mjs";
 import { loadConfig, setConfigValue } from "../lib/services/settings.mjs";
@@ -664,7 +664,17 @@ async function main() {
   throw new Error(`未知命令：${group}\n\n${HELP}`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
+function isDirectExecution() {
+  if (!process.argv[1]) return false;
+  try {
+    // Node resolves module URLs through links, including macOS /var -> /private/var.
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) main().catch((error) => {
   process.stderr.write(`错误${error.code ? ` [${error.code}]` : ""}：${error.message}\n`);
   process.exitCode = 1;
 });

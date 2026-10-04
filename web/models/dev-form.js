@@ -26,15 +26,16 @@ export const defaults = (region) => ({
 /** Pure form conversion: detached output, unknown advanced JSON fields retained.
  * @param {import('../../lib/contracts.mjs').FormInput<ReturnType<typeof fromVariables>>} fields
  * @param {import('../../lib/contracts.mjs').DeveloperCreateVariables} base
+ * @param {{allowIncomplete?: boolean}} [options] Permit draft capture while refreshing options.
  */
-export function toVariables(fields, base) {
+export function toVariables(fields, base, { allowIncomplete = false } = {}) {
   fields = structuredClone(fields);
   const variables = structuredClone(base);
   variables.DisplayName = fields.name.trim();
   variables.Region = fields.region;
   const projectId = fields.project;
-  if (projectId === "") throw new Error("请选择系统资源所属项目");
-  variables.ProjectId = Number(projectId);
+  if (projectId === "" && !allowIncomplete) throw new Error("请选择系统资源所属项目");
+  variables.ProjectId = projectId === "" ? null : Number(projectId);
   variables.Description = fields.description.trim();
   variables.ImageSource = Number(fields.imageSource);
   delete variables.ImageId;
@@ -49,9 +50,17 @@ export function toVariables(fields, base) {
     variables.ImageId = fields.imageSelect;
   }
   variables.AutoSave = fields.autosave;
-  if (variables.AutoSave && fields.autosaveType === "Official") {
-    variables.AutoSaveConfig = { ...variables.AutoSaveConfig, ImageType: "Official" };
-    Object.assign(variables.AutoSaveConfig, {
+  if (variables.AutoSave) {
+    const imageType = fields.autosaveType === 'Official' ? 'Official' : 'Personal';
+    const previousType = variables.AutoSaveConfig?.ImageType || 'Personal';
+    variables.AutoSaveConfig = { ...variables.AutoSaveConfig, ImageType: imageType };
+    if (previousType !== imageType) {
+      // A destination and its credentials belong to the selected registry type.
+      for (const key of ['OfficialInstance', 'OfficialInstanceName', 'Namespace', 'ImageRepo', 'UserName', 'Password']) {
+        delete variables.AutoSaveConfig[key];
+      }
+    }
+    if (imageType === 'Official') Object.assign(variables.AutoSaveConfig, {
         OfficialInstance: fields.autosaveInstance.trim(),
         UserName: fields.autosaveUsername.trim(),
         Password: fields.autosavePassword,
@@ -79,13 +88,13 @@ export function toVariables(fields, base) {
   variables.ServiceConfigs = fields.serviceConfigs;
   const needsAllocation = variables.EnablePublicNetworkSsh || variables.ServiceConfigs.some((item) => item.EnablePublicNetwork);
   if (needsAllocation) {
-    if (!fields.allocationId) {
+    if (!fields.allocationId && !allowIncomplete) {
       const unavailable = fields.allocationUnavailable;
       throw new Error(unavailable
         ? `模板中的公网 EIP“${unavailable}”当前不可用，请重新选择`
         : "已开启公网访问，请选择一个当前可用的公网 EIP");
     }
-    variables.AllocationId = fields.allocationId;
+    variables.AllocationId = fields.allocationId || fields.allocationUnavailable || '';
   } else delete variables.AllocationId;
   variables.NodeAffinity = {
     ...variables.NodeAffinity,

@@ -4,6 +4,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
+import net from 'node:net';
+import { once } from 'node:events';
 import { createContext } from "../lib/context.mjs";
 import { listenGui } from "../lib/gui-server.mjs";
 import { AicpService } from "../lib/service.mjs";
@@ -11,7 +13,7 @@ import { TemplateStore } from "../lib/templates.mjs";
 import { LoginError } from '../lib/login.mjs';
 import { createApi, ApiError } from '../web/core/request.js';
 
-export async function fixture(t) {
+export async function fixture(t, apiOverrides = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "aicp-http-"));
   const templates = new TemplateStore();
   templates.paths = { templates: directory };
@@ -20,7 +22,8 @@ export async function fixture(t) {
     createNotebook: async (variables) => { calls.push(structuredClone(variables)); return { NotebookId: "new-dev" }; },
     createTrainJob: async (variables) => { calls.push(structuredClone(variables)); return { TrainJobId: "new-train" }; },
     listNotebooks: async () => ({ Notebooks: [{ NotebookId: "dev-1", Name: "dev", State: "stopped" }] }),
-    setNotebookStatus: async (...args) => { calls.push(args); return { ok: true }; },
+    setNotebookStatus: async (...args) => { calls.push(args); return { Return: true }; },
+    ...apiOverrides,
   };
   const config = { region: "test-region", guiPort: 0 };
   const browser = { status: async () => ({ authenticated: true }) };
@@ -64,6 +67,80 @@ test("HTTP create validates before dispatch and returns the existing response sh
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { result: { NotebookId: "new-dev" }, variables: dev });
   assert.deepEqual(calls, [dev]);
+});
+
+test('GUI works through a different local TCP port while enforcing origin and token checks', async t => {
+  const { url, calls } = await fixture(t);
+  const sockets = new Set();
+  const tunnel = net.createServer(socket => {
+    const upstream = net.connect(Number(new URL(url).port), '127.0.0.1');
+    for (const stream of [socket, upstream]) {
+      sockets.add(stream);
+      stream.on('close', () => sockets.delete(stream));
+      stream.on('error', () => { socket.destroy(); upstream.destroy(); });
+    }
+    socket.pipe(upstream);
+    upstream.pipe(socket);
+  });
+  try {
+    tunnel.listen(0, '127.0.0.1');
+    await once(tunnel, 'listening');
+    const forwarded = `http://127.0.0.1:${tunnel.address().port}`;
+    assert.notEqual(forwarded, url);
+    assert.equal((await fetch(forwarded)).status, 200);
+    const { token } = await (await fetch(`${forwarded}/api/bootstrap`)).json();
+    const action = (headers = {}) => fetch(`${forwarded}/api/dev/action`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-aicp-token': token, origin: forwarded, ...headers },
+      body: JSON.stringify({ action: 'start', selector: 'dev-1' }),
+    });
+    assert.equal((await action({ 'x-aicp-token': '' })).status, 403);
+    for (const origin of [url, 'http://localhost:9999', 'https://example.com', 'null']) {
+      assert.equal((await action({ origin })).status, 403);
+    }
+    assert.equal(calls.length, 0);
+    assert.equal((await action()).status, 200);
+    assert.equal(calls.length, 1);
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise(resolve => tunnel.close(resolve));
+  }
+});
+
+test('GUI rejects non-loopback hosts and forged forwarding headers', async t => {
+  const { url } = await fixture(t);
+  const request = headers => new Promise((resolve, reject) => {
+    http.get(url, { headers }, response => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode));
+    }).on('error', reject);
+  });
+  for (const host of ['example.com', 'localhost.example.com:17863', '127.0.0.1.example.com', '192.168.1.1:17863', 'localhost:0', 'localhost:65536', '127.0.0.1@evil.test']) {
+    assert.equal(await request({ host, 'x-forwarded-host': 'localhost:17863', 'x-forwarded-proto': 'http' }), 403, host);
+  }
+  for (const host of ['localhost:27863', '127.0.0.1:27863', '[::1]:27863']) {
+    assert.equal(await request({ host, origin: `http://${host}` }), 200, host);
+    assert.equal(await request({ host, origin: 'http://localhost:37863' }), 403, host);
+  }
+});
+
+test('HTTP developer actions reject platform failure or missing results', async t => {
+  let state = 'stopped', result, writes = 0;
+  const { request } = await fixture(t, {
+    listNotebooks: async () => ({ Notebooks: [{ NotebookId: 'dev-1', Name: 'dev', State: state }] }),
+    setNotebookStatus: async () => { writes++; return result; },
+  });
+  for (const action of ['start', 'stop']) {
+    state = action === 'start' ? 'stopped' : 'running';
+    for (result of [{ Return: false }, undefined, { Return: true }]) {
+      const before = writes;
+      const response = await request('/api/dev/action', { action, selector: 'dev-1' });
+      assert.equal(response.status, result?.Return === true ? 200 : 400);
+      const body = await response.json();
+      if (result?.Return === true) assert.equal(body.result.Return, true);
+      else assert.match(body.error, result?.Return === false ? /失败/ : /结果未知/);
+      assert.equal(writes, before + 1);
+    }
+  }
 });
 
 test("HTTP serves module assets without exposing application files", async (t) => {

@@ -11,7 +11,7 @@ for (const kind of ['dev', 'train']) test(`${kind} policy and actual service wri
     const write = action => async () => { writes.push(action); return { Results: [{ Return: true }] }; };
     const service = new AicpService({
       listNotebooks: async () => ({ Notebooks: [item] }), listTrainJobs: async () => ({ TrainJobSet: [item] }),
-      setNotebookStatus: async (_, action) => write(action)(), deleteNotebooks: write('delete'),
+      setNotebookStatus: async (_, action) => { writes.push(action); return { Return: true }; }, deleteNotebooks: write('delete'),
       startTrainJobs: write('start'), stopTrainJobs: write('stop'), deleteTrainJobs: write('delete'),
     }, {}, {});
     const policy = resourceCapabilities(kind, state);

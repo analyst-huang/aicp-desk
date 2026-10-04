@@ -258,6 +258,7 @@ body:has(#save-image-modal[open]), body:has(#train-detail-modal[open]) { overflo
 .form-grid label, .modal-body > label, .command-field, .native-create-form label, .create-template-bar label { display: grid; gap: 7px; color: var(--muted); font-size: 10px; font-weight: 650; }
 .create-template-bar { display: grid; grid-template-columns: minmax(250px, 1.2fr) auto minmax(260px, 1fr); gap: 12px; align-items: end; padding: 16px 18px; border: 1px solid #dcd6f7; background: #f8f6ff; border-radius: 14px; }
 .create-template-bar small { color: #8d86a7; font-weight: 500; }
+.create-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .quick-fields { margin-top: 22px; }
 .section-label { color: var(--ink); font-size: 12px; font-weight: 750; margin-bottom: 11px; }
 .command-field { margin-top: 14px; }

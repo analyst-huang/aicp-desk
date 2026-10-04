@@ -30,9 +30,8 @@ export async function mountApplication() {
     train: { load: trainingPage.loadTrain, deactivate: trainingPage.deactivate },
     gpu: { load: capacityPage.loadGpu, deactivate: capacityPage.deactivate },
   });
-  const syncQuickFields = () => creation.syncQuickFields();
-  const dev = devForm({ ...common, syncQuickFields });
-  const train = trainForm({ ...common, syncQuickFields });
+  const dev = devForm({ ...common, refreshOptions: () => creation.refreshOptions('dev') });
+  const train = trainForm({ ...common, refreshOptions: () => creation.refreshOptions('train') });
   const templateLibrary = templates({ ...common, openCreate: (...args) => creation.openCreate(...args) });
   creation = create({ ...common, forms: Object.freeze({ dev, train }),
     templates: { list: templateLibrary.list, loadTemplates: templateLibrary.loadTemplates },

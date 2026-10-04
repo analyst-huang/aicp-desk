@@ -161,7 +161,7 @@
           <button type="button" class="button ghost" id="save-create-template">将当前配置另存为模板</button>
           <label>任务名称<input id="create-name" required placeholder="请输入唯一名称"></label>
         </div>
-        <div id="dev-quick-fields" class="native-create-form">
+        <fieldset id="dev-quick-fields" class="create-fields native-create-form">
           <div class="create-loading" id="dev-options-status">正在加载金山云创建选项……</div>
 
           <section class="create-section">
@@ -182,7 +182,7 @@
               <div class="form-grid two"><label>搜索镜像<input id="dev-image-search" placeholder="按名称、框架、CUDA 或版本筛选"></label><label>镜像<select id="dev-image-select"><option value="">请选择镜像</option></select></label></div>
               <div class="selection-detail" id="dev-image-detail">尚未选择镜像</div>
             </div>
-            <div class="form-grid three hidden" id="dev-third-image-fields"><label>镜像配置<select id="dev-image-registry"><option value="">请选择镜像配置</option></select></label><label>镜像仓库<select id="dev-image-repo"><option value="">请先选择镜像配置</option></select></label><label>镜像版本<select id="dev-image-tag"><option value="">请先选择镜像仓库</option></select></label></div>
+            <fieldset class="create-fields form-grid three hidden" id="dev-third-image-fields" disabled><label>镜像配置<select id="dev-image-registry" required><option value="">请选择镜像配置</option></select></label><label>镜像仓库<select id="dev-image-repo" required><option value="">请先选择镜像配置</option></select></label><label>镜像版本<select id="dev-image-tag" required><option value="">请先选择镜像仓库</option></select></label></fieldset>
             <div class="toggle-panel"><label class="checkbox strong"><input type="checkbox" id="dev-autosave" checked> 开启自动保存镜像</label><p>开发机停止前保存环境，供同一任务下次恢复。大文件建议保存在挂载存储中。</p>
               <div class="form-grid three" id="dev-autosave-config"><label>镜像实例类型<select id="dev-autosave-type"><option value="Personal">个人版实例</option><option value="Official">企业版实例</option></select></label><div id="dev-autosave-official" class="subgrid hidden"><label>企业实例 ID<input id="dev-autosave-instance"></label><label>仓库用户名<input id="dev-autosave-username"></label><label>仓库密码<input id="dev-autosave-password" type="password" autocomplete="off"></label></div></div>
             </div>
@@ -207,7 +207,7 @@
           <section class="create-section">
             <div class="create-section-head"><div><span>05</span><h3>访问配置</h3></div><p id="dev-public-network-status">选择资源组后检查公网能力</p></div>
             <div class="toggle-panel"><label class="checkbox strong"><input type="checkbox" id="dev-enable-ssh"> 开启 SSH</label>
-              <div id="dev-ssh-fields" class="hidden"><div class="form-grid two"><label>SSH 端口<input id="dev-ssh-port" type="number" min="1" max="65535" value="22"></label><label class="checkbox"><input type="checkbox" id="dev-public-ssh"> 同时开放公网 SSH</label></div><label>SSH 公钥<textarea id="dev-ssh-keys" rows="3" placeholder="ssh-ed25519 / ssh-rsa ..."></textarea></label></div>
+              <fieldset id="dev-ssh-fields" class="create-fields hidden" disabled><div class="form-grid two"><label>SSH 端口<input id="dev-ssh-port" type="number" min="1" max="65535" value="22"></label><label class="checkbox"><input type="checkbox" id="dev-public-ssh"> 同时开放公网 SSH</label></div><label>SSH 公钥<textarea id="dev-ssh-keys" rows="3" placeholder="ssh-ed25519 / ssh-rsa ..."></textarea></label></fieldset>
             </div>
             <div class="repeater-head"><div><strong>自定义服务</strong><small>配置服务名、端口和公网访问</small></div><button type="button" class="button ghost small" data-add-row="service">＋ 添加自定义服务</button></div>
             <div class="repeater" id="dev-service-rows"></div>
@@ -218,8 +218,8 @@
             <div class="create-section-head"><div><span>06</span><h3>权限配置</h3></div></div>
             <label class="choice-card inline"><input type="checkbox" id="dev-queue-share"><span><strong>开启队列内共享</strong><small>队列成员可以查看和使用此开发任务</small></span></label>
           </section>
-        </div>
-        <div id="train-quick-fields" class="quick-fields hidden">
+        </fieldset>
+        <fieldset id="train-quick-fields" class="create-fields quick-fields hidden" disabled>
           <div class="create-loading" id="train-options-status">打开创建页后加载金山云训练选项</div>
           <section class="create-section">
             <div class="create-section-head"><div><span>01</span><h3>调度与任务</h3></div><button type="button" class="link-action" id="refresh-train-options">刷新选项</button></div>
@@ -229,7 +229,7 @@
             <div class="create-section-head"><div><span>02</span><h3>运行镜像</h3></div></div>
             <div class="form-grid two"><label>镜像类型<select id="train-image-source"><option value="Official">官方镜像</option><option value="Personal">自定义镜像</option><option value="ThirdParty">第三方镜像</option></select></label><label id="train-aicp-image-field">镜像<select id="train-image-select"><option value="">请选择镜像</option></select></label></div>
             <div class="selection-detail" id="train-image-detail">尚未选择镜像</div>
-            <div class="form-grid three hidden" id="train-third-image-fields"><label>镜像配置<select id="train-image-registry"><option value="">请选择镜像配置</option></select></label><label>镜像仓库<select id="train-image-repo"><option value="">请先选择镜像配置</option></select></label><label>镜像版本<select id="train-image-tag"><option value="">请先选择镜像仓库</option></select></label></div>
+            <fieldset class="create-fields form-grid three hidden" id="train-third-image-fields" disabled><label>镜像配置<select id="train-image-registry" required><option value="">请选择镜像配置</option></select></label><label>镜像仓库<select id="train-image-repo" required><option value="">请先选择镜像配置</option></select></label><label>镜像版本<select id="train-image-tag" required><option value="">请先选择镜像仓库</option></select></label></fieldset>
           </section>
           <section class="create-section">
             <div class="create-section-head"><div><span>03</span><h3>算力配置</h3></div></div>
@@ -240,7 +240,7 @@
             <div class="repeater" id="train-storage-rows"><div class="repeater-empty">暂未配置挂载</div></div>
           </section>
           <section class="create-section"><div class="create-section-head"><div><span>05</span><h3>启动命令</h3></div></div><label class="command-field"><span id="train-command-label">运行命令</span><textarea id="train-command" rows="7" spellcheck="false"></textarea></label></section>
-        </div>
+        </fieldset>
         <details class="advanced"><summary>高级参数 · 完整 JSON</summary><p>表单会实时同步到这里；未展示的高级字段仍可直接编辑。</p><textarea id="create-json" rows="18" spellcheck="false"></textarea></details>
       </div>
       <div class="modal-footer"><span id="create-validation">参数尚未检查</span><button type="button" class="button ghost" data-close-modal="create-modal">取消</button><button type="submit" class="button primary" id="submit-create" value="default">检查并创建</button></div>

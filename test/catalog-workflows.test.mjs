@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { AicpService } from '../lib/service.mjs';
 
-function fixture() {
+function fixture(overrides = {}) {
   const calls = [];
   const api = {
     region: region => region || 'default-region',
@@ -24,6 +24,7 @@ function fixture() {
     listNotebooks: async () => ({ Notebooks: [{ Name: 'dev', NotebookId: 'kaic-dev', State: 'running' }] }),
     submitNotebookImage: async payload => { calls.push(structuredClone(payload)); return { Return: true }; },
     submitCreate: async (kind, payload) => { calls.push({ kind, payload }); return { NotebookId: 'created' }; },
+    ...overrides,
   };
   return { api, calls, service: new AicpService(api, {}, { region: 'default-region' }) };
 }
@@ -43,6 +44,25 @@ test('business services build catalog results from primitive cloud reads', async
   assert.equal((await service.saveImageOptions()).personalConfigured, true);
   assert.equal(calls.filter(item => item === 'open').length, 4);
   assert.equal(calls.filter(item => item === 'close').length, 4);
+});
+
+test('public network lookup failure rejects create options and remains distinct from an explicit denial', async () => {
+  const failure = new Error('public-network-query-failed');
+  let fail = true, allowed = false;
+  const { service, calls } = fixture({
+    publicNetworkCondition: async () => {
+      if (fail) throw failure;
+      return { IsAllow: allowed };
+    },
+  });
+  await assert.rejects(service.developerCreateOptions('region'), error => error === failure);
+  fail = false;
+  assert.deepEqual((await service.developerCreateOptions('region')).publicNetworkByPool, { pool: false });
+  allowed = true;
+  assert.deepEqual((await service.developerCreateOptions('region')).publicNetworkByPool, { pool: true });
+  assert.equal(calls.filter(item => item === 'open').length, 3);
+  assert.equal(calls.filter(item => item === 'close').length, 3);
+  assert.equal(calls.some(item => item.kind === 'dev'), false);
 });
 
 test('save-image workflow owns native namespace validation and submits once', async () => {

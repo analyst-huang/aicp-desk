@@ -6,6 +6,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import vm from 'node:vm';
 import { BrowserSession } from '../lib/browser.mjs';
+import { openExternalUrl } from '../lib/browser/environment.mjs';
 import { expiredSession } from '../lib/login.mjs';
 
 async function fixture(t, overrides = {}) {
@@ -69,6 +70,46 @@ test('interactive and headless launches share private Linux settings and clean b
   assert.equal(launches[0].options.env.WAYLAND_DISPLAY, undefined);
   assert.ok(launches[1].args.includes('--headless=new'));
   assert.equal(launches[1].options.windowsHide, true);
+});
+
+for (const headless of [false, true]) test(`${headless ? 'headless' : 'interactive'} startup reports asynchronous spawn errors and stops a timed-out child`, async t => {
+  let clock = 0, kills = 0, emitError = true;
+  const child = Object.assign(new EventEmitter(), { pid: 123, exitCode: null, unref() {}, kill() { kills++; } });
+  // Keep the pre-fix failure contained in this test; production must install its own error handler.
+  child.on('error', () => {});
+  const failure = Object.assign(new Error('fixture EACCES'), { code: 'EACCES' });
+  const { browser } = await fixture(t, {
+    ensureAppDirs: async () => {}, findEdge: async () => '/fixture/edge',
+    cleanupSingletons: async () => ({ cleaned: false }), spawn: () => child,
+    now: () => clock,
+    sleep: async ms => { clock += ms; if (emitError) { emitError = false; child.emit('error', failure); } },
+  });
+  browser.version = async () => null;
+  const launch = () => headless ? browser.launchHeadless() : browser.runtimeAdapter.startInteractive();
+  await assert.rejects(launch, error => error === failure);
+  assert.ok(clock < 1000, 'spawn failure must not wait for the startup timeout');
+  child.emit('close');
+  child.removeAllListeners();
+  clock = 0;
+  kills = 0;
+  await assert.rejects(launch, /Edge 启动超时/);
+  assert.equal(kills, 1);
+  child.emit('close');
+  assert.equal(child.listenerCount('error'), 0);
+});
+
+for (const headless of [false, true]) test(`${headless ? 'headless' : 'interactive'} startup handles a real failed spawn without an uncaught error`, async t => {
+  const { browser, paths } = await fixture(t, {
+    ensureAppDirs: async () => {}, cleanupSingletons: async () => ({ cleaned: false }),
+  });
+  browser.dependencies.findEdge = async () => path.join(paths.home, 'missing-edge-executable');
+  browser.version = async () => null;
+  await assert.rejects(() => headless ? browser.launchHeadless() : browser.runtimeAdapter.startInteractive(), { code: 'ENOENT' });
+});
+
+test('opening an external URL rejects when the configured browser exists but cannot execute', async t => {
+  const { paths } = await fixture(t);
+  await assert.rejects(() => openExternalUrl({ edgePath: paths.home }, 'http://127.0.0.1/'), error => typeof error.code === 'string');
 });
 
 test('a passport and console pair must pass an identity probe before using the console', async () => {

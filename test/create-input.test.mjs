@@ -43,6 +43,29 @@ test('normalization copies numeric strings and pure validation accepts frozen in
   assert.equal(source.Future.retained, true);
 });
 
+test('creation rejects invalid image sources and SSH ports before executing a write', async () => {
+  let writes = 0;
+  const service = new CreationService({ executePayload: async () => writes++, templates: {}, config: {} });
+  const invalid = {
+    ImageSource: ['abc', '', ' ', true, [], {}, NaN, Infinity, -1, 0.5, 3],
+    SshPort: ['abc', '', ' ', null, true, [], {}, NaN, Infinity, -1, 0, 1.5, 65536],
+  };
+  for (const [field, values] of Object.entries(invalid)) for (const value of values) {
+    const variables = { ...examples.dev, EnableSsh: true, [field]: value };
+    await assert.rejects(() => service.create('dev', { variables }), new RegExp(field));
+    await assert.rejects(() => service.executeCreate({ kind: 'dev', variables }), new RegExp(field));
+  }
+  assert.equal(writes, 0);
+  for (const port of ['1', '22', '65535']) {
+    const prepared = await service.prepareCreate('dev', { variables: { ...examples.dev, EnableSsh: true, SshPort: port, ImageSource: '1' } });
+    assert.equal(prepared.variables.SshPort, Number(port));
+    assert.equal(prepared.variables.ImageSource, 1);
+  }
+  for (const port of [undefined, null, 0]) {
+    await service.prepareCreate('dev', { variables: { ...examples.dev, EnableSsh: false, SshPort: port } });
+  }
+});
+
 test('creation rejects invalid object and array shapes with actionable field errors', async () => {
   const service = new CreationService({ executePayload: async () => assert.fail('write'), templates: {}, config: {} });
   for (const variables of [null, [], 'text', 1, false]) await assert.rejects(() => service.prepareCreate('dev', { variables }), /必须是对象/);
