@@ -1,10 +1,8 @@
 /** developers owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
+export function createFeature({ appState, markResourceRefresh, performResourceAction, ui, signal }) {
   let requestId = 0;
   const state = { dev: [], devLoading: false };
   const { $, $$, on, escapeHtml, api, toast, statusPill, metric, tableLoading, copyText } = ui;
-  const markResourceRefresh = (...args) => features.shell.markResourceRefresh(...args);
-  const performResourceAction = (...args) => features.shell.performResourceAction(...args);
 
   async function loadDev({ background = false } = {}) {
     if (state.devLoading) return;
@@ -82,5 +80,5 @@ export function createFeature({ appState, features, ui, signal }) {
     on($("#dev-mine"), "change", () => { deactivate(); loadDev(); });
   }
 
-  return { state, bind, deactivate, dispose: deactivate, loadDev };
+  return { bind, deactivate, dispose: deactivate, loadDev };
 }

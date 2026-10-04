@@ -1,10 +1,10 @@
+import { fromVariables, toVariables } from '../models/train-form.js';
 import { renderRepeater } from '../core/repeaters.js';
 /** trainForm owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
+export function createFeature({ appState, syncQuickFields, ui, signal }) {
   let generation = 0;
   const state = { trainOptions: null, trainImageRepos: [], trainImageTags: [] };
   const { $, $$, on, escapeHtml, api, toast } = ui;
-  const syncQuickFields = (...args) => features.create.syncQuickFields(...args);
 
   function trainImageList(source = $("#train-image-source").value) {
     if (!state.trainOptions) return [];
@@ -150,27 +150,26 @@ export function createFeature({ appState, features, ui, signal }) {
   }
 
   function fillTrainFields(variables) {
-    const role = variables.Roles?.[0] || {};
-    const image = role.ImageConfig || {};
-    renderTrainPoolOptions(variables.ResourcePoolId || "");
-    renderTrainQueues(variables.QueueName || "");
-    $("#train-framework").value = variables.Framework || "pytorch";
-    $("#train-priority").value = variables.Priority || "kaic-normal";
-    $("#train-role-name").value = role.RoleName || "Master";
-    $("#train-replicas").value = Number(role.Replicas || 1);
-    $("#train-job-cpu").checked = Boolean(variables.JobRunOnCPU || !role.ResourceConfig?.GPUType);
-    $("#train-queue-share").checked = variables.AccessType === "QueueMember";
-    $("#train-image-source").value = ["Official", "Personal", "ThirdParty"].includes(image.ImageSource) ? image.ImageSource : "Personal";
-    renderTrainImages(image.ImageId || "");
-    renderTrainRegistries(image.ImageRegistryId || "");
-    if (image.ImageSource === "ThirdParty") loadTrainImageRepos(image.ImageRegistryId || "", image.ImageRepoId || "", image.ImageTagId || "").catch((error) => toast(error.message, "error"));
-    renderTrainGpuTypes(role.ResourceConfig?.GPUType || "");
-    $("#train-gpu-number").value = Number(role.ResourceConfig?.GPUNumber || 0);
-    $("#train-cpu").value = Number(role.ResourceConfig?.CPUNum || 8);
-    $("#train-memory").value = Number(role.ResourceConfig?.Memory || 16);
-    renderTrainStorageRows(variables.StorageConfigs || []);
-    $("#train-command-label").textContent = String(variables.Framework).toLowerCase() === "ray" ? "入口命令" : "运行命令";
-    $("#train-command").value = String(variables.Framework).toLowerCase() === "ray" ? variables.EntryPointCommand || "" : role.RunCommand || "";
+    const fields = fromVariables(variables);
+    renderTrainPoolOptions(fields.resourcePool);
+    renderTrainQueues(fields.queue);
+    $("#train-framework").value = fields.framework;
+    $("#train-priority").value = fields.priority;
+    $("#train-role-name").value = fields.roleName;
+    $("#train-replicas").value = fields.replicas;
+    $("#train-job-cpu").checked = fields.jobCpu;
+    $("#train-queue-share").checked = fields.queueShare;
+    $("#train-image-source").value = fields.imageSource;
+    renderTrainImages(fields.imageSelect);
+    renderTrainRegistries(fields.imageRegistry);
+    if (fields.imageSource === "ThirdParty") loadTrainImageRepos(fields.imageRegistry, fields.imageRepo, fields.imageTag).catch((error) => toast(error.message, "error"));
+    renderTrainGpuTypes(fields.gpuType);
+    $("#train-gpu-number").value = fields.gpuNumber;
+    $("#train-cpu").value = fields.cpu;
+    $("#train-memory").value = fields.memory;
+    renderTrainStorageRows(fields.storageConfigs);
+    $("#train-command-label").textContent = String(fields.framework).toLowerCase() === "ray" ? "入口命令" : "运行命令";
+    $("#train-command").value = fields.command;
   }
 
   function invalidate() {
@@ -180,19 +179,93 @@ export function createFeature({ appState, features, ui, signal }) {
 
   function resetOptions() { invalidate(); state.trainOptions = null; }
 
+  function readVariables(base) {
+    return toVariables({
+      region: appState.config.region, name: $("#create-name").value,
+      resourcePool: $("#train-resource-pool").value,
+      queue: $("#train-queue").value,
+      framework: $("#train-framework").value,
+      priority: $("#train-priority").value,
+      queueShare: $("#train-queue-share").checked,
+      roleName: $("#train-role-name").value,
+      replicas: $("#train-replicas").value,
+      imageSource: $("#train-image-source").value,
+      imageRegistry: $("#train-image-registry").value,
+      imageRepo: $("#train-image-repo").value,
+      imageTag: $("#train-image-tag").value,
+      imageSelect: $("#train-image-select").value,
+      gpuType: $("#train-gpu-type").value,
+      gpuNumber: $("#train-gpu-number").value,
+      cpu: $("#train-cpu").value,
+      memory: $("#train-memory").value,
+      jobCpu: $("#train-job-cpu").checked,
+      command: $("#train-command").value,
+      storageConfigs: readTrainStorageRows(),
+    }, base);
+  }
+
+  function addRow(kind) {
+    if (kind !== 'train-storage') return;
+    const items = readTrainStorageRows();
+    if (items.length >= 20) return toast('最多添加 20 项挂载配置', 'error');
+    const first = state.trainOptions?.storageConfigs?.[0];
+    renderTrainStorageRows([...items, { StorageConfigId: first?.StorageConfigId || '', MountType: 'DataSet', MountPath: first?.KpfsInfo?.MountPath || first?.Ks3Info?.MountPath || '', MountProtocol: first?.KpfsInfo?.MntProtocol || null }]);
+  }
+
+  function applyDefaults(input, { selectResourcePool = false } = {}) {
+    const variables = structuredClone(input);
+    if (selectResourcePool && !variables.ResourcePoolId && state.trainOptions?.resourcePools?.length) {
+      variables.ResourcePoolId = state.trainOptions.resourcePools[0].ResourcePoolId;
+      variables.QueueName = state.trainOptions.queues.find(item => item.ResourcePoolId === variables.ResourcePoolId)?.Name || '';
+      const role = variables.Roles?.[0];
+      const personal = state.trainOptions.images?.personal?.[0];
+      const image = personal || state.trainOptions.images?.official?.[0];
+      if (role && image && !role.ImageConfig?.ImageId) role.ImageConfig = { ...role.ImageConfig, ImageId: image.ImageId, ImageSource: personal ? 'Personal' : 'Official' };
+    }
+    return variables;
+  }
+
+  function handleInput() { return false; }
+
+  async function handleChange(event) {
+    if (event.target.id === "train-resource-pool") renderTrainQueues();
+    if (event.target.id === "train-queue") renderTrainGpuTypes();
+    if (event.target.id === "train-gpu-type") {
+      if (event.target.value && Number($("#train-gpu-number").value) < 1) $("#train-gpu-number").value = 1;
+      if (!event.target.value) $("#train-gpu-number").value = 0;
+      $("#train-job-cpu").checked = !event.target.value;
+    }
+    if (event.target.id === "train-image-source") renderTrainImages();
+    if (event.target.id === "train-image-select") renderTrainImageDetail();
+    if (event.target.id === "train-image-registry") await loadTrainImageRepos(event.target.value);
+    if (event.target.id === "train-image-repo") await loadTrainImageTags($("#train-image-registry").value, event.target.value);
+    if (event.target.id === "train-framework") $("#train-command-label").textContent = event.target.value === "ray" ? "入口命令" : "运行命令";
+    if (event.target.matches("[data-train-storage-id]")) {
+      const item = state.trainOptions?.storageConfigs?.find((entry) => entry.StorageConfigId === event.target.value);
+      const row = event.target.closest(".repeater-row");
+      const path = $("[data-train-storage-path]", row);
+      const protocol = $("[data-train-storage-protocol]", row);
+      if (item && !path.value) path.value = item.KpfsInfo?.MountPath || item.Ks3Info?.MountPath || "";
+      if (item?.KpfsInfo?.MntProtocol) protocol.value = item.KpfsInfo.MntProtocol;
+    }
+  }
+
   function bind() {
     on($("#refresh-train-options"), "click", async () => {
+      const current = generation;
       let variables;
       try { variables = syncQuickFields(); }
       catch (error) { return toast(error.message, "error"); }
       try {
         state.trainOptions = null;
         await loadTrainCreateOptions({ force: true });
+        if (current !== generation) return;
         fillTrainFields(variables);
         toast("金山云训练创建选项已刷新");
-      } catch (error) { toast(error.message, "error"); }
+      } catch (error) { if (current === generation) toast(error.message, "error"); }
     });
   }
 
-  return { state, bind, invalidate, resetOptions, dispose: invalidate, trainImageList, selectedTrainQueue, renderTrainPoolOptions, renderTrainQueues, renderTrainGpuTypes, renderTrainImages, renderTrainImageDetail, renderTrainRegistries, loadTrainImageTags, loadTrainImageRepos, trainStorageOptions, renderTrainStorageRows, readTrainStorageRows, loadTrainCreateOptions, fillTrainFields };
+  return { bind, invalidate, resetOptions, dispose: invalidate, readVariables, applyDefaults, addRow, handleInput, handleChange,
+    fillFields: fillTrainFields, loadOptions: loadTrainCreateOptions };
 }

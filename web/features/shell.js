@@ -1,16 +1,15 @@
 import { createPoller } from '../core/polling.js';
 /** shell owns navigation and resource refresh scheduling. */
-export function createFeature({ appState, features, ui, signal }) {
-  const state = { autoRefreshTimer: null };
+export function createFeature({ appState, resources, templates, settings, ui, signal }) {
   const { $, $$, on, api, toast, setBusy } = ui;
-  const renderSession = (...args) => features.settings.renderSession(...args);
-  const refreshSession = (...args) => features.settings.refreshSession(...args);
-  const loadDev = (...args) => features.developers.loadDev(...args);
-  const loadTrain = (...args) => features.training.loadTrain(...args);
-  const loadGpu = (...args) => features.gpu.loadGpu(...args);
-  const loadTemplates = (...args) => features.templates.loadTemplates(...args);
-  const renderTemplates = (...args) => features.templates.renderTemplates(...args);
-  const fillSettings = (...args) => features.settings.fillSettings(...args);
+  const renderSession = (...args) => settings.renderSession(...args);
+  const refreshSession = (...args) => settings.refreshSession(...args);
+  const loadDev = (...args) => resources.dev.load(...args);
+  const loadTrain = (...args) => resources.train.load(...args);
+  const loadGpu = (...args) => resources.gpu.load(...args);
+  const loadTemplates = (...args) => templates.loadTemplates(...args);
+  const renderTemplates = (...args) => templates.renderTemplates(...args);
+  const fillSettings = (...args) => settings.fillSettings(...args);
   const AUTO_REFRESH_MS = 10_000;
   const poller = createPoller(() => refreshActiveResourcePage({ background: true }), {
     delay: AUTO_REFRESH_MS,
@@ -18,7 +17,7 @@ export function createFeature({ appState, features, ui, signal }) {
   });
 
   function setPage(page) {
-    const previous = { dev: features.developers, train: features.training, gpu: features.gpu }[appState.page];
+    const previous = resources[appState.page];
     previous?.deactivate();
     appState.page = page;
     $$(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.page === page));
@@ -77,7 +76,7 @@ export function createFeature({ appState, features, ui, signal }) {
   async function bootstrap() {
     const payload = await api("/api/bootstrap");
     Object.assign(appState, { token: payload.token, config: payload.config, session: payload.session });
-    features.templates.state.templates = payload.templates;
+    templates.replace(payload.templates);
     renderSession();
     fillSettings();
     renderTemplates();
@@ -108,5 +107,5 @@ export function createFeature({ appState, features, ui, signal }) {
     }));
   }
 
-  return { state, bind, dispose: poller.stop, setPage, markResourceRefresh, refreshActiveResourcePage, startAutoRefresh, performResourceAction, bootstrap };
+  return { bind, dispose: poller.stop, setPage, markResourceRefresh, refreshActiveResourcePage, startAutoRefresh, performResourceAction, bootstrap };
 }

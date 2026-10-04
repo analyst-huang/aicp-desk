@@ -18,6 +18,8 @@ jobs:
           node-version: 22
       - run: npm test
       - run: npm ci
+      - name: Check JavaScript contracts
+        run: npm run check:types
       - name: Install test browser
         run: npx playwright install --with-deps chromium
       - name: Browser interaction tests

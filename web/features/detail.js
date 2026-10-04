@@ -1,6 +1,6 @@
 import { createPoller } from '../core/polling.js';
 /** detail owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
+export function createFeature({ appState, ui, signal }) {
   const state = { trainDetailCommands: [], trainDetailRequest: 0, trainDetailSelector: "", trainLogEntries: [], trainLogRequest: 0, trainLogTimer: null };
   const { $, $$, on, escapeHtml, api, toast, statusPill, copyText } = ui;
   const poller = createPoller(() => loadTrainLogs({ background: true }), {
@@ -195,5 +195,5 @@ export function createFeature({ appState, features, ui, signal }) {
     });
   }
 
-  return { state, bind, dispose, trainCommandBlocks, trainMonitorHtml, renderTrainDetail, stopTrainLogRefresh, scheduleTrainLogRefresh, renderTrainLogs, loadTrainLogs, openTrainDetail };
+  return { bind, dispose };
 }

@@ -11,12 +11,14 @@
     "test": "node --test",
     "gui": "node ./bin/aicp.mjs gui",
     "start": "node ./bin/aicp.mjs gui",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "check:types": "tsc -p tsconfig.check.json"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0"
+    "@playwright/test": "^1.63.0",
+    "typescript": "5.9.3"
   }
 }

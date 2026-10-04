@@ -1,9 +1,8 @@
 /** gpu owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
+export function createFeature({ appState, markResourceRefresh, performResourceAction, ui, signal }) {
   let requestId = 0;
   const state = { gpuLoading: false, gpuCapacity: null };
   const { $, $$, on, escapeHtml, api, toast, statusPill, metric, percentLabel } = ui;
-  const markResourceRefresh = (...args) => features.shell.markResourceRefresh(...args);
 
   function workloadLabel(types = []) {
     if (!types.length) return "通用";
@@ -130,5 +129,5 @@ export function createFeature({ appState, features, ui, signal }) {
     on($("#gpu-node-sort"), "change", rerenderGpuCapacity);
   }
 
-  return { state, bind, deactivate, dispose: deactivate, workloadLabel, orderedGpuNodes, renderGpuFilterSummary, rerenderGpuCapacity, renderGpuPools, loadGpu };
+  return { bind, deactivate, dispose: deactivate, loadGpu };
 }

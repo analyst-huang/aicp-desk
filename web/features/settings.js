@@ -1,6 +1,5 @@
 /** settings owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
-  const state = {  };
+export function createFeature({ appState, onSessionChange, onRegionChange, ui, signal }) {
   const { $, $$, on, escapeHtml, api, toast, setBusy } = ui;
 
 
@@ -25,7 +24,7 @@ export function createFeature({ appState, features, ui, signal }) {
   async function refreshSession() {
     appState.session = await api("/api/session");
     renderSession();
-    features.shell.startAutoRefresh();
+    onSessionChange();
   }
 
   async function login(button) {
@@ -60,9 +59,7 @@ export function createFeature({ appState, features, ui, signal }) {
         }),
       });
       if (previousRegion !== appState.config.region) {
-        features.devForm.resetOptions();
-        features.trainForm.resetOptions();
-        features.devForm.state.devNodes = [];
+        onRegionChange();
       }
       toast("设置已保存；端口变更会在下次启动时生效");
     } catch (error) { toast(error.message, "error"); }
@@ -84,5 +81,5 @@ export function createFeature({ appState, features, ui, signal }) {
     on($("#config-form"), "submit", saveSettings);
   }
 
-  return { state, bind, renderSession, refreshSession, login, fillSettings, saveSettings };
+  return { bind, renderSession, refreshSession, fillSettings };
 }

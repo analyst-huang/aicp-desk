@@ -1,10 +1,8 @@
 /** training owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
+export function createFeature({ appState, markResourceRefresh, performResourceAction, ui, signal }) {
   let requestId = 0;
   const state = { train: [], trainLoading: false };
   const { $, $$, on, escapeHtml, api, toast, statusPill, metric, tableLoading } = ui;
-  const markResourceRefresh = (...args) => features.shell.markResourceRefresh(...args);
-  const performResourceAction = (...args) => features.shell.performResourceAction(...args);
 
   async function loadTrain({ background = false } = {}) {
     if (state.trainLoading) return;
@@ -77,5 +75,5 @@ export function createFeature({ appState, features, ui, signal }) {
     on($("#train-status"), "change", loadTrain);
   }
 
-  return { state, bind, deactivate, dispose: deactivate, loadTrain };
+  return { bind, deactivate, dispose: deactivate, loadTrain };
 }

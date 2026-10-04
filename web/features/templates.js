@@ -1,10 +1,11 @@
+import { defaults as developerDefaults } from '../models/dev-form.js';
+import { defaults as trainingDefaults } from '../models/train-form.js';
 /** templates owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
+export function createFeature({ appState, openCreate, ui, signal }) {
   const state = { templates: [] };
   const { $, $$, on, escapeHtml, api, toast, setBusy } = ui;
-  const openCreate = (...args) => features.create.openCreate(...args);
-  const devDefaults = (...args) => features.create.devDefaults(...args);
-  const trainDefaults = (...args) => features.create.trainDefaults(...args);
+  const devDefaults = () => developerDefaults(appState.config.region);
+  const trainDefaults = () => trainingDefaults(appState.config.region);
 
   async function loadTemplates() {
     try {
@@ -125,5 +126,8 @@ export function createFeature({ appState, features, ui, signal }) {
     ));
   }
 
-  return { state, bind, loadTemplates, renderTemplates, saveFromResource, openTemplateEditor, editTemplate, saveTemplateEditor, deleteTemplate };
+  return { bind, loadTemplates, renderTemplates,
+    list: () => structuredClone(state.templates),
+    replace: records => { state.templates = structuredClone(records); },
+  };
 }

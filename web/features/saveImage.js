@@ -1,8 +1,7 @@
 /** saveImage owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
+export function createFeature({ appState, loadDev, ui, signal }) {
   const state = { saveImageDev: null, saveImageOptions: null, saveImageNamespaces: [], saveImageRepositories: [], saveImageRequest: 0 };
   const { $, $$, on, escapeHtml, api, toast, setBusy } = ui;
-  const loadDev = (...args) => features.developers.loadDev(...args);
 
   function currentSaveImageType() {
     return $('input[name="save-image-type"]:checked')?.value || "Personal";
@@ -234,5 +233,5 @@ export function createFeature({ appState, features, ui, signal }) {
     on($("#save-image-repo"), "input", validateSaveImageRepository);
   }
 
-  return { state, bind, dispose, currentSaveImageType, setSaveImageStatus, renderSaveImageInstances, renderSaveImageNamespaces, saveImageRepoName, renderSaveImageRepositories, validateSaveImageRepository, updateSaveImageEndpointDetail, loadSaveImageRepositories, loadSaveImageNamespaces, updateSaveImageType, loadSaveImageOptions, openSaveImage, submitSaveImage };
+  return { bind, dispose };
 }

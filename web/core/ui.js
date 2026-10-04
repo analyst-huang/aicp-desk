@@ -1,6 +1,6 @@
-/** ui owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
-  const state = {  };
+import { createApi } from './request.js';
+/** Shared DOM and request helpers. */
+export function createFeature({ appState, signal }) {
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const on = (target, type, listener) => target.addEventListener(type, listener, { signal });
@@ -15,20 +15,7 @@ export function createFeature({ appState, features, ui, signal }) {
       .replaceAll("'", "&#039;");
   }
 
-  async function api(path, options = {}) {
-    const response = await fetch(path, {
-      signal,
-      ...options,
-      headers: {
-        "content-type": "application/json",
-        "x-aicp-token": appState.token,
-        ...(options.headers || {}),
-      },
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || `请求失败：HTTP ${response.status}`);
-    return payload;
-  }
+  const api = createApi({ getToken: () => appState.token, signal });
 
   function toast(message, type = "success") {
     const node = document.createElement("div");
@@ -99,5 +86,5 @@ export function createFeature({ appState, features, ui, signal }) {
 
   }
 
-  return { state, bind, $, $$, on, escapeHtml, api, toast, setBusy, statusLabel, statusPill, metric, percentLabel, tableLoading, copyText };
+  return { bind, $, $$, on, escapeHtml, api, toast, setBusy, statusLabel, statusPill, metric, percentLabel, tableLoading, copyText };
 }

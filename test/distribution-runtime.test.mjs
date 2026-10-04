@@ -39,7 +39,7 @@ test('distributed application runs CLI and serves modules without node_modules',
     child.once('error', reject);
     child.once('exit', () => reject(new Error(error || 'GUI exited before listening')));
   });
-  for (const asset of ['/', '/app.js', '/application.js', '/features/devForm.js', '/core/repeaters.js']) {
+  for (const asset of ['/', '/app.js', '/application.js', '/features/devForm.js', '/core/repeaters.js', '/core/request.js', '/models/dev-form.js', '/models/train-form.js']) {
     assert.equal((await fetch(url + asset)).status, 200);
   }
 });

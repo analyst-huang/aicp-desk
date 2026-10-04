@@ -1,10 +1,10 @@
+import { fromVariables, toVariables } from '../models/dev-form.js';
 import { renderRepeater } from '../core/repeaters.js';
 /** devForm owns its local state and event bindings; cross-feature calls are explicit. */
-export function createFeature({ appState, features, ui, signal }) {
+export function createFeature({ appState, syncQuickFields, ui, signal }) {
   let generation = 0;
   const state = { devOptions: null, devImageRepos: [], devImageTags: [], devResourceRequest: 0, devNodeRequest: 0, devNodes: [] };
   const { $, $$, on, escapeHtml, api, toast } = ui;
-  const syncQuickFields = (...args) => features.create.syncQuickFields(...args);
 
   function currentDevImageSource() {
     return Number($('input[name="dev-image-source"]:checked')?.value ?? 0);
@@ -315,45 +315,46 @@ export function createFeature({ appState, features, ui, signal }) {
   }
 
   function fillDevFields(variables) {
-    renderProjectOptions(variables.ProjectId);
-    $("#dev-description").value = variables.Description || "";
-    const imageSource = [0, 1, 2].includes(Number(variables.ImageSource)) ? Number(variables.ImageSource) : 0;
+    const fields = fromVariables(variables);
+    renderProjectOptions(fields.project);
+    $("#dev-description").value = fields.description;
+    const imageSource = fields.imageSource;
     const radio = $(`input[name="dev-image-source"][value="${imageSource}"]`);
     if (radio) radio.checked = true;
     $("#dev-image-search").value = "";
     renderDevImageMode();
-    if (imageSource !== 2) renderDevImageOptions(variables.ImageId || "");
-    renderRegistryOptions(variables.ImageRegistryId || "");
-    if (imageSource === 2) loadImageRepos(variables.ImageRegistryId || "", variables.ImageRepoId || "", variables.ImageTagId || "").catch((error) => toast(error.message, "error"));
-    $("#dev-autosave").checked = Boolean(variables.AutoSave);
-    $("#dev-autosave-type").value = variables.AutoSaveConfig?.ImageType || "Personal";
-    $("#dev-autosave-instance").value = variables.AutoSaveConfig?.OfficialInstance || "";
-    $("#dev-autosave-username").value = variables.AutoSaveConfig?.UserName || "";
-    $("#dev-autosave-password").value = variables.AutoSaveConfig?.Password || "";
+    if (imageSource !== 2) renderDevImageOptions(fields.imageSelect);
+    renderRegistryOptions(fields.imageRegistry);
+    if (imageSource === 2) loadImageRepos(fields.imageRegistry, fields.imageRepo, fields.imageTag).catch((error) => toast(error.message, "error"));
+    $("#dev-autosave").checked = fields.autosave;
+    $("#dev-autosave-type").value = fields.autosaveType;
+    $("#dev-autosave-instance").value = fields.autosaveInstance;
+    $("#dev-autosave-username").value = fields.autosaveUsername;
+    $("#dev-autosave-password").value = fields.autosavePassword;
     updateAutosaveFields();
-    renderEnvRows(variables.Envs || []);
-    renderPoolOptions(variables.ResourcePoolId || "");
-    renderDevQueues(variables.QueueName || "");
-    renderGpuTypes(variables.GPUType || "");
-    $("#dev-gpu-number").value = Number(variables.GPUNumber || 0);
-    $("#dev-cpu").value = Number(variables.CpuNum || 8);
-    $("#dev-memory").value = Number(variables.Memory || 16);
-    $("#dev-affinity-cpu").checked = Boolean(variables.NodeAffinity?.RunOnCPU);
-    $("#dev-affinity-gpu").checked = Boolean(variables.NodeAffinity?.RunOnGPU);
-    const affinityIp = variables.NodeAffinity?.RequiredNodeIp || "";
+    renderEnvRows(fields.envs);
+    renderPoolOptions(fields.resourcePool);
+    renderDevQueues(fields.queue);
+    renderGpuTypes(fields.gpuType);
+    $("#dev-gpu-number").value = fields.gpuNumber;
+    $("#dev-cpu").value = fields.cpu;
+    $("#dev-memory").value = fields.memory;
+    $("#dev-affinity-cpu").checked = fields.affinityCpu;
+    $("#dev-affinity-gpu").checked = fields.affinityGpu;
+    const affinityIp = fields.affinityIp;
     if (affinityIp) {
       $("#dev-affinity-cpu").checked = false;
       $("#dev-affinity-gpu").checked = false;
     }
-    renderStorageRows(variables.StorageConfigs || []);
-    $("#dev-enable-ssh").checked = Boolean(variables.EnableSsh);
-    $("#dev-ssh-port").value = Number(variables.SshPort || 22);
-    $("#dev-ssh-keys").value = variables.SshAuthorizedKeys || "";
-    $("#dev-public-ssh").checked = Boolean(variables.EnablePublicNetworkSsh);
-    renderEipOptions(variables.AllocationId || "");
+    renderStorageRows(fields.storageConfigs);
+    $("#dev-enable-ssh").checked = fields.enableSsh;
+    $("#dev-ssh-port").value = fields.sshPort;
+    $("#dev-ssh-keys").value = fields.sshKeys;
+    $("#dev-public-ssh").checked = fields.publicSsh;
+    renderEipOptions(fields.allocationId);
     updateSshFields();
-    renderServiceRows(variables.ServiceConfigs || []);
-    $("#dev-queue-share").checked = variables.AccessType === "QueueMember";
+    renderServiceRows(fields.serviceConfigs);
+    $("#dev-queue-share").checked = fields.queueShare;
     updatePublicNetworkStatus();
     refreshDevResourceInfo();
     refreshDevNodes(affinityIp);
@@ -364,21 +365,138 @@ export function createFeature({ appState, features, ui, signal }) {
     state.devResourceRequest++; state.devNodeRequest++;
   }
 
-  function resetOptions() { invalidate(); state.devOptions = null; }
+  function resetOptions() { invalidate(); state.devOptions = null; state.devNodes = []; }
+
+  function readVariables(base) {
+    return toVariables({
+      region: appState.config.region, name: $("#create-name").value,
+      project: $("#dev-project").value,
+      description: $("#dev-description").value,
+      imageRegistry: $("#dev-image-registry").value,
+      imageRepo: $("#dev-image-repo").value,
+      imageTag: $("#dev-image-tag").value,
+      imageSelect: $("#dev-image-select").value,
+      autosave: $("#dev-autosave").checked,
+      autosaveType: $("#dev-autosave-type").value,
+      autosaveInstance: $("#dev-autosave-instance").value,
+      autosaveUsername: $("#dev-autosave-username").value,
+      autosavePassword: $("#dev-autosave-password").value,
+      resourcePool: $("#dev-resource-pool").value,
+      queue: $("#dev-queue").value,
+      gpuType: $("#dev-gpu-type").value,
+      gpuNumber: $("#dev-gpu-number").value,
+      cpu: $("#dev-cpu").value,
+      memory: $("#dev-memory").value,
+      queueShare: $("#dev-queue-share").checked,
+      enableSsh: $("#dev-enable-ssh").checked,
+      sshPort: $("#dev-ssh-port").value,
+      sshKeys: $("#dev-ssh-keys").value,
+      publicSsh: $("#dev-public-ssh").checked,
+      allocationId: $("#dev-allocation-id").value,
+      affinityCpu: $("#dev-affinity-cpu").checked,
+      affinityGpu: $("#dev-affinity-gpu").checked,
+      affinityIp: $("#dev-affinity-ip").value,
+      imageSource: currentDevImageSource(), allocationUnavailable: $("#dev-allocation-id").dataset.unavailableValue || '',
+      envs: $$(".repeater-row", $("#dev-env-rows")).map(row => ({ Name: $("[data-env-name]", row).value.trim(), Value: $("[data-env-value]", row).value })).filter(item => item.Name),
+      storageConfigs: readStorageRows(), serviceConfigs: readServiceRows(),
+    }, base);
+  }
+
+  function addRow(kind) {
+    if (kind === 'env') {
+      const items = $$('.repeater-row', $('#dev-env-rows')).map(row => ({ Name: $('[data-env-name]', row).value, Value: $('[data-env-value]', row).value }));
+      renderEnvRows([...items, { Name: '', Value: '' }]);
+    }
+    if (kind === 'storage') {
+      const items = readStorageRows();
+      if (items.length >= 20) return toast('最多添加 20 项存储配置', 'error');
+      const first = state.devOptions?.storageConfigs?.[0];
+      renderStorageRows([...items, { StorageConfigId: first?.StorageConfigId || '', StorageConfigType: 'DataSet', MountPath: first?.KpfsInfo?.MountPath || first?.Ks3Info?.MountPath || '', MountProtocol: first?.KpfsInfo?.MntProtocol || '' }]);
+    }
+    if (kind === 'service') {
+      const items = readServiceRows();
+      if (items.length >= 40) return toast('最多添加 40 项自定义服务', 'error');
+      renderServiceRows([...items, { Service: '', Port: '', EnablePublicNetwork: false }]);
+    }
+  }
+
+  function applyDefaults(input, { selectResourcePool = false } = {}) {
+    const variables = normalizeDevProject(structuredClone(input));
+    if (selectResourcePool && !variables.ResourcePoolId && state.devOptions?.resourcePools?.length) {
+      variables.ResourcePoolId = state.devOptions.resourcePools[0].ResourcePoolId;
+      variables.QueueName = state.devOptions.queues.find(item => item.ResourcePoolId === variables.ResourcePoolId)?.Name || '';
+    }
+    return variables;
+  }
+
+  function handleInput(event) {
+    if (event.target.id !== 'dev-image-search') return false;
+    renderDevImageOptions();
+    return true;
+  }
+
+  async function handleChange(event) {
+    if (event.target.name === "dev-image-source") renderDevImageMode();
+    if (event.target.id === "dev-image-select") renderImageDetail();
+    if (event.target.id === "dev-image-registry") await loadImageRepos(event.target.value);
+    if (event.target.id === "dev-image-repo") await loadImageTags($("#dev-image-registry").value, event.target.value);
+    if (event.target.id === "dev-autosave" || event.target.id === "dev-autosave-type") updateAutosaveFields();
+    if (event.target.id === "dev-enable-ssh") updateSshFields();
+    if (event.target.id === "dev-public-ssh" || event.target.matches("[data-service-public]")) updateEipVisibility();
+    if (event.target.id === "dev-resource-pool") {
+      renderDevQueues();
+      updatePublicNetworkStatus();
+      await refreshDevResourceInfo();
+    }
+    if (event.target.id === "dev-queue") {
+      renderGpuTypes();
+      await refreshDevResourceInfo();
+    }
+    if (event.target.id === "dev-gpu-type") {
+      if (event.target.value && Number($("#dev-gpu-number").value) < 1) $("#dev-gpu-number").value = 1;
+      if (!event.target.value) $("#dev-gpu-number").value = 0;
+      await refreshDevResourceInfo();
+    }
+    if (event.target.id === "dev-gpu-number") await refreshDevResourceInfo();
+    if (["dev-resource-pool", "dev-queue", "dev-gpu-type", "dev-gpu-number", "dev-cpu", "dev-memory"].includes(event.target.id)) await refreshDevNodes();
+    if (event.target.id === "dev-affinity-cpu" && event.target.checked) {
+      $("#dev-affinity-gpu").checked = false;
+      $("#dev-affinity-ip").value = "";
+    }
+    if (event.target.id === "dev-affinity-gpu" && event.target.checked) {
+      $("#dev-affinity-cpu").checked = false;
+      $("#dev-affinity-ip").value = "";
+    }
+    if (event.target.id === "dev-affinity-ip" && event.target.value) {
+      $("#dev-affinity-cpu").checked = false;
+      $("#dev-affinity-gpu").checked = false;
+    }
+    if (event.target.matches("[data-storage-id]")) {
+      const item = state.devOptions?.storageConfigs?.find((entry) => entry.StorageConfigId === event.target.value);
+      const row = event.target.closest(".repeater-row");
+      const path = $("[data-storage-path]", row);
+      const protocol = $("[data-storage-protocol]", row);
+      if (item && !path.value) path.value = item.KpfsInfo?.MountPath || item.Ks3Info?.MountPath || "";
+      if (item?.KpfsInfo?.MntProtocol) protocol.value = item.KpfsInfo.MntProtocol;
+    }
+  }
 
   function bind() {
     on($("#refresh-dev-options"), "click", async () => {
+      const current = generation;
       let variables;
       try { variables = syncQuickFields(); }
       catch (error) { return toast(error.message, "error"); }
       try {
         state.devOptions = null;
         await loadDevCreateOptions({ force: true });
+        if (current !== generation) return;
         fillDevFields(variables);
         toast("金山云创建选项已刷新");
-      } catch (error) { toast(error.message, "error"); }
+      } catch (error) { if (current === generation) toast(error.message, "error"); }
     });
   }
 
-  return { state, bind, invalidate, resetOptions, dispose: invalidate, currentDevImageSource, imageListForSource, selectedImage, selectedPool, selectedQueue, renderImageDetail, renderDevImageOptions, renderDevImageMode, renderPoolOptions, renderProjectOptions, normalizeDevProject, renderRegistryOptions, renderDevQueues, renderGpuTypes, storageOptions, renderEnvRows, renderStorageRows, renderServiceRows, renderEipOptions, updateEipVisibility, readStorageRows, readServiceRows, updateAutosaveFields, updateSshFields, updatePublicNetworkStatus, refreshDevResourceInfo, refreshDevNodes, loadImageTags, loadImageRepos, loadDevCreateOptions, fillDevFields };
+  return { bind, invalidate, resetOptions, dispose: invalidate, readVariables, applyDefaults, addRow, handleInput, handleChange,
+    fillFields: fillDevFields, loadOptions: loadDevCreateOptions };
 }

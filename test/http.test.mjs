@@ -8,6 +8,8 @@ import { createContext } from "../lib/context.mjs";
 import { listenGui } from "../lib/gui-server.mjs";
 import { AicpService } from "../lib/service.mjs";
 import { TemplateStore } from "../lib/templates.mjs";
+import { LoginError } from '../lib/login.mjs';
+import { createApi, ApiError } from '../web/core/request.js';
 
 export async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "aicp-http-"));
@@ -33,7 +35,7 @@ export async function fixture(t) {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const dev = JSON.parse(await readFile(new URL("../examples/dev-create.json", import.meta.url), "utf8"));
-  return { ...server, request, calls, templates, service, dev };
+  return { ...server, request, calls, templates, service, dev, token: bootstrap.token };
 }
 
 test("HTTP protections reject invalid tokens, foreign origins and hosts", async (t) => {
@@ -65,7 +67,7 @@ test("HTTP create validates before dispatch and returns the existing response sh
 
 test("HTTP serves module assets without exposing application files", async (t) => {
   const { request } = await fixture(t);
-  for (const asset of ["/application.js", "/features/create.js", "/core/polling.js"]) {
+  for (const asset of ["/application.js", "/features/create.js", "/core/polling.js", "/models/dev-form.js", "/models/train-form.js"]) {
     const response = await request(asset);
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type"), /javascript/);
@@ -95,4 +97,29 @@ test("HTTP resource actions reject unknown actions and use business state checks
   assert.equal((await request("/api/dev/action", { action: "start", selector: "dev-1" })).status, 200);
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "dev-1");
+});
+
+test('HTTP and GUI client preserve login metadata without exposing private error fields', async (t) => {
+  const { request, service, token, url } = await fixture(t);
+  const api = createApi({ getToken: () => token, fetchImpl: (route, options) => fetch(`${url}${route}`, options) });
+  for (const [code, requiresUserAction] of [['AUTH_EXPIRED', false], ['MANUAL_LOGIN_REQUIRED', true], ['OPERATION_NOT_RETRIED', false]]) {
+    service.listDevelopers = async () => {
+      const error = new LoginError(code, '公开错误文字', requiresUserAction);
+      error.credentials = 'private';
+      throw error;
+    };
+    const response = await request('/api/dev');
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: '公开错误文字', code, requiresUserAction });
+    await assert.rejects(api('/api/dev'), (error) => {
+      assert.ok(error instanceof ApiError);
+      assert.equal(error.message, '公开错误文字');
+      assert.equal(error.code, code);
+      assert.equal(error.requiresUserAction, requiresUserAction);
+      assert.equal(error.status, 400);
+      return true;
+    });
+  }
+  service.listDevelopers = async () => { throw new Error('原有错误'); };
+  assert.deepEqual(await (await request('/api/dev')).json(), { error: '原有错误' });
 });
