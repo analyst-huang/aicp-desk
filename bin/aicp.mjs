@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { AGENT_INSTRUCTIONS } from "../lib/agent-instructions.mjs";
 import { createContext } from "../lib/context.mjs";
+import { volumeReclaimPolicy } from '../lib/domain/deletion.mjs';
 import { loadConfig, setConfigValue } from "../lib/services/settings.mjs";
 import {
   confirmAction,
@@ -56,7 +57,7 @@ GPU 容量
                   [--set PATH=VALUE ...] [--dry-run] [--yes]
   aicp dev start NAME_OR_ID [--yes]
   aicp dev stop NAME_OR_ID [--force] [--yes]
-  aicp dev delete NAME_OR_ID [--yes]
+  aicp dev delete NAME_OR_ID [--volume-policy reclaim|delete] [--yes]
 
 训练任务
   aicp train list [--mine | --creator-id USER_ID]
@@ -353,15 +354,17 @@ export async function handleDev(context, action, args, { confirm = confirmAction
 
   const selector = positionals[0];
   if (!["start", "stop", "delete"].includes(action) || !selector) throw new Error(`未知开发机命令：${action || "（空）"}`);
+  const policy = action === 'delete' ? volumeReclaimPolicy(options['volume-policy']) : undefined;
   const item = await context.service.resolveDeveloper(selector, { region: options.region });
   const verb = { start: "启动", stop: "停止", delete: "永久删除" }[action];
-  const approved = await confirm(`确认${verb}开发机 ${item.Name}？`, { yes: Boolean(options.yes) });
+  const volumeWarning = action === 'delete' ? policy === 'delete' ? '（同时永久删除关联云盘及其中的数据）' : '（保留关联云盘）' : '';
+  const approved = await confirm(`确认${verb}开发机 ${item.Name}${volumeWarning}？`, { yes: Boolean(options.yes) });
   if (!approved) return output("已取消");
   const result = action === "start"
     ? await context.service.startDeveloper(item.NotebookId, { region: options.region })
     : action === "stop"
       ? await context.service.stopDeveloper(item.NotebookId, { region: options.region, force: Boolean(options.force) })
-      : await context.service.deleteDeveloper(item.NotebookId, { region: options.region });
+      : await context.service.deleteDeveloper(item.NotebookId, { region: options.region, volumeReclaimPolicy: policy });
   return output(result, true);
 }
 

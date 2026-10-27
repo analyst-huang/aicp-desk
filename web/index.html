@@ -195,6 +195,8 @@
             <div class="form-grid two"><label>资源组<select id="dev-resource-pool"><option value="">请选择资源组</option></select></label><label>队列<select id="dev-queue"><option value="">请先选择资源组</option></select></label></div>
             <div class="form-grid four"><label>GPU 类型<select id="dev-gpu-type"><option value="">不使用 GPU</option></select></label><label>GPU 卡数<input id="dev-gpu-number" type="number" min="0" step="1" value="0"></label><label>CPU 核数<input id="dev-cpu" type="number" min="1" step="1" value="8"></label><label>内存 (GiB)<input id="dev-memory" type="number" min="1" step="1" value="16"></label></div>
             <div class="resource-hint" id="dev-resource-hint">选择队列后显示可用资源与推荐规格</div>
+            <div class="toggle-panel"><label class="checkbox strong"><input type="checkbox" id="dev-custom-share-memory"> 自定义共享内存</label><fieldset id="dev-share-memory-fields" class="create-fields hidden" disabled><label>共享内存 (GiB)<input id="dev-share-memory" type="number" min="0" step="1" value="0" required><small>不能超过任务内存</small></label></fieldset></div>
+            <div class="toggle-panel"><label class="checkbox strong"><input type="checkbox" id="dev-enable-volume"> 配置持久化云盘</label><fieldset id="dev-volume-fields" class="create-fields form-grid two hidden" disabled><label>云盘性能等级<input id="dev-volume-type" required list="dev-volume-types" placeholder="选择或填写云盘性能等级"><datalist id="dev-volume-types"><option value="ESSD_PL0"></option><option value="ESSD_PL1"></option><option value="ESSD_PL2"></option><option value="ESSD_PL3"></option></datalist><small>请选择当前区域和资源组支持的等级</small></label><label>云盘容量 (GiB)<input id="dev-volume-size" type="number" min="1" step="1" value="100" required></label></fieldset><p>容量与性能等级受当前资源组和区域配额限制。</p></div>
             <details class="subsection"><summary>更多配置 · 节点亲和性</summary><div class="form-grid three"><label class="checkbox"><input type="checkbox" id="dev-affinity-cpu"> 仅调度 CPU 节点</label><label class="checkbox"><input type="checkbox" id="dev-affinity-gpu"> 仅调度 GPU 节点</label><label>指定节点<select id="dev-affinity-ip"><option value="">不指定节点</option></select><small id="dev-affinity-status">按当前队列和资源规格实时加载</small></label></div></details>
           </section>
 
@@ -240,10 +242,23 @@
             <div class="repeater" id="train-storage-rows"><div class="repeater-empty">暂未配置挂载</div></div>
           </section>
           <section class="create-section"><div class="create-section-head"><div><span>05</span><h3>启动命令</h3></div></div><label class="command-field"><span id="train-command-label">运行命令</span><textarea id="train-command" rows="7" spellcheck="false"></textarea></label></section>
+          <section class="create-section">
+            <div class="create-section-head"><div><span>06</span><h3>检查与监控</h3></div></div>
+            <div class="toggle-panel"><label class="checkbox strong"><input type="checkbox" id="train-rdma-check"> 启用 RDMA 依赖检查</label><fieldset id="train-rdma-fields" class="create-fields form-grid two hidden" disabled><label>检查时机<select id="train-rdma-timing"><option value="BeforeRunning">任务运行前</option></select></label><label>最长检查时间（分钟）<input id="train-rdma-minutes" type="number" min="1" max="5" step="1" value="1" required></label></fieldset></div>
+            <div class="toggle-panel"><label class="checkbox strong"><input type="checkbox" id="train-tensorboard"> 启用 TensorBoard</label><fieldset id="train-tensorboard-fields" class="create-fields hidden" disabled><label>TensorBoard 保留时长（小时）<input id="train-tensorboard-hours" type="number" min="0" step="1" value="24" required></label><p>请在挂载配置中添加用途为 TensorBoard 的日志存储。</p></fieldset></div>
+          </section>
         </fieldset>
         <details class="advanced"><summary>高级参数 · 完整 JSON</summary><p>表单会实时同步到这里；未展示的高级字段仍可直接编辑。</p><textarea id="create-json" rows="18" spellcheck="false"></textarea></details>
       </div>
       <div class="modal-footer"><span id="create-validation">参数尚未检查</span><button type="button" class="button ghost" data-close-modal="create-modal">取消</button><button type="submit" class="button primary" id="submit-create" value="default">检查并创建</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="delete-dev-modal">
+    <form method="dialog" class="modal-card" id="delete-dev-form">
+      <div class="modal-head"><h2>删除开发机</h2><button type="button" class="icon-button" data-close-modal="delete-dev-modal" aria-label="关闭">×</button></div>
+      <div class="modal-body"><p>即将永久删除开发机“<strong id="delete-dev-name"></strong>”，此操作无法撤销。已挂载的 KPFS / KS3 存储不受影响。</p><label>输入开发机名称确认<input id="delete-dev-confirm-name" required autocomplete="off"></label><div id="delete-dev-volume-fields" class="toggle-panel hidden"><label class="checkbox strong"><input id="delete-dev-volume" type="checkbox"> 同步删除关联云盘</label><p>默认保留云盘；勾选后，关联云盘及其中的数据将被永久删除。</p></div></div>
+      <div class="modal-footer"><button type="button" class="button ghost" data-close-modal="delete-dev-modal">取消</button><button type="submit" class="button danger">永久删除</button></div>
     </form>
   </dialog>
 

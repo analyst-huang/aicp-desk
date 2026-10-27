@@ -11,6 +11,7 @@ export function createFeature({ appState, resources, templates, settings, ui, si
   const renderTemplates = (...args) => templates.renderTemplates(...args);
   const fillSettings = (...args) => settings.fillSettings(...args);
   const AUTO_REFRESH_MS = 10_000;
+  let deleteConfirmation = null;
   const poller = createPoller(() => refreshActiveResourcePage({ background: true }), {
     delay: AUTO_REFRESH_MS,
     enabled: () => !signal.aborted && !document.hidden && appState.session.authenticated && ["dev", "train", "gpu"].includes(appState.page),
@@ -54,8 +55,26 @@ export function createFeature({ appState, resources, templates, settings, ui, si
     const verb = { start: "启动", stop: "停止", delete: "永久删除" }[action];
     const resourceLabel = kind === "dev" ? "开发机" : "训练任务";
     const warning = action === "delete" ? "此操作无法撤销，且不会删除已挂载存储中的数据。" : "";
-    if (!window.confirm(`确认${verb}${resourceLabel}“${name}”吗？${warning}`)) return;
-    if (action === "delete") {
+    let deletionOptions = {};
+    if (kind === 'dev' && action === 'delete') {
+      const modal = $('#delete-dev-modal');
+      if (deleteConfirmation) return;
+      $('#delete-dev-name').textContent = name;
+      $('#delete-dev-confirm-name').value = '';
+      $('#delete-dev-volume').checked = false;
+      $('#delete-dev-volume-fields').classList.toggle('hidden', button?.dataset.enableVolume !== 'true');
+      $('#delete-dev-volume').disabled = button?.dataset.enableVolume !== 'true';
+      modal.returnValue = '';
+      const choice = await new Promise(resolve => {
+        deleteConfirmation = { name, resolve };
+        modal.showModal();
+      });
+      if (!choice || signal.aborted) return;
+      deletionOptions = choice;
+    } else {
+      if (!window.confirm(`确认${verb}${resourceLabel}“${name}”吗？${warning}`)) return;
+    }
+    if (action === "delete" && kind !== 'dev') {
       const typed = window.prompt(`为避免误删，请输入${resourceLabel}名称：${name}`);
       if (typed !== name) return toast("名称不匹配，已取消删除", "error");
     }
@@ -63,7 +82,7 @@ export function createFeature({ appState, resources, templates, settings, ui, si
     try {
       const result = await api(`/api/${kind}/action`, {
         method: "POST",
-        body: JSON.stringify({ selector, action }),
+        body: JSON.stringify({ selector, action, ...deletionOptions }),
       });
       toast(result.noop ? result.message : action === "delete" ? `${resourceLabel}已删除` : `${verb}请求已提交`, "success");
       if (kind === "dev") await loadDev(); else await loadTrain();
@@ -86,6 +105,19 @@ export function createFeature({ appState, resources, templates, settings, ui, si
   }
 
   function bind() {
+    on($('#delete-dev-form'), 'submit', event => {
+      event.preventDefault();
+      if (!deleteConfirmation) return;
+      if ($('#delete-dev-confirm-name').value !== deleteConfirmation.name) return toast('名称不匹配，请重新输入开发机名称', 'error');
+      $('#delete-dev-modal').close('delete');
+    });
+    on($('#delete-dev-modal'), 'close', () => {
+      const confirmation = deleteConfirmation;
+      deleteConfirmation = null;
+      confirmation?.resolve($('#delete-dev-modal').returnValue === 'delete'
+        ? { volumeReclaimPolicy: !$('#delete-dev-volume').disabled && $('#delete-dev-volume').checked ? 'delete' : 'reclaim' }
+        : null);
+    });
     on(document, "click", async (event) => {
       const closer = event.target.closest("[data-close-modal]");
       if (closer) {
@@ -108,5 +140,12 @@ export function createFeature({ appState, resources, templates, settings, ui, si
     }));
   }
 
-  return { bind, dispose: poller.stop, setPage, markResourceRefresh, refreshActiveResourcePage, startAutoRefresh, performResourceAction, bootstrap };
+  function dispose() {
+    poller.stop();
+    deleteConfirmation?.resolve(null);
+    deleteConfirmation = null;
+    if ($('#delete-dev-modal').open) $('#delete-dev-modal').close();
+  }
+
+  return { bind, dispose, setPage, markResourceRefresh, refreshActiveResourcePage, startAutoRefresh, performResourceAction, bootstrap };
 }

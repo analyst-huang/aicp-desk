@@ -38,7 +38,12 @@ export async function mountApplication() {
     onCreated: kind => resources[kind].load(),
   });
   const preferences = settings({ ...common,
-    onSessionChange: () => shellController.startAutoRefresh(),
+    onSessionChange: () => {
+      const current = resources[appState.page];
+      current?.deactivate();
+      current?.load();
+      shellController.startAutoRefresh();
+    },
     onRegionChange: () => { dev.resetOptions(); train.resetOptions(); },
   });
   shellController = shell({ ...common, resources,

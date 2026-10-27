@@ -10,6 +10,10 @@ export function createFeature({ appState, onSessionChange, onRegionChange, ui, s
       badge.classList.add("ready");
       badge.innerHTML = `<i></i>已认证 · ${escapeHtml(appState.session.username)}`;
       detail.textContent = `当前用户 ID：${appState.session.userId}。${appState.session.browserRunning ? `独立 Edge 当前打开，调试端口 ${appState.session.debugPort}。` : "登录 Cookie 已通过平台接口验证。"}`;
+    } else if (appState.session.profileExists && ['CONSOLE_UNRESPONSIVE', 'BROWSER_OR_NETWORK_ERROR'].includes(appState.session.authenticationCode)) {
+      badge.classList.remove('ready');
+      badge.innerHTML = '<i></i>平台连接异常';
+      detail.textContent = appState.session.authenticationError || '平台连接暂时不可用，点击登录 / 更新会话重试；已保留登录资料。';
     } else if (appState.session.profileExists) {
       badge.classList.remove("ready");
       badge.innerHTML = "<i></i>登录资料存在，但未认证";

@@ -15,6 +15,115 @@ const options = {
   imageRegistries: [], storageConfigs: [{ StorageConfigId: train.StorageConfigs[0].StorageConfigId, Name: 'Data' }], availableAddresses: [],
 };
 
+test('a console connection timeout is distinguished from expired credentials and login can recover', async ({ page }) => {
+  let authenticated = false;
+  const status = () => authenticated
+    ? { authenticated: true, profileExists: true, username: 'alice', userId: 'u1' }
+    : { authenticated: false, profileExists: true, authenticationCode: 'CONSOLE_UNRESPONSIVE', authenticationError: '平台页面无响应，请重新连接；已保留登录资料' };
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/bootstrap') return route.fulfill({ json: { token: 'fixture', config: { region: dev.Region }, session: status(), templates: [] } });
+    if (url.pathname === '/api/login') { authenticated = true; return route.fulfill({ json: status() }); }
+    if (url.pathname === '/api/session') return route.fulfill({ json: status() });
+    if (url.pathname === '/api/dev') return route.fulfill({ json: { Notebooks: [], TotalCount: 0 } });
+    return route.fulfill({ json: [] });
+  });
+  await page.goto('/');
+  await expect(page.locator('#session-badge')).toContainText('平台连接异常');
+  await expect(page.locator('#session-detail')).not.toContainText('已失效');
+  await page.locator('#login-button').click();
+  await expect(page.locator('#session-badge')).toContainText('已认证 · alice');
+  await expect(page.locator('#login-button')).toBeEnabled();
+  await expect(page.locator('#dev-count')).toContainText('共 0');
+});
+
+for (const deleteDisk of [false, true]) test(`developer deletion ${deleteDisk ? 'deletes' : 'retains'} its disk only after name confirmation`, async ({ page }) => {
+  const { writes, errors } = await setup(page, {
+    '/api/dev': route => route.fulfill({ json: { Notebooks: [{ NotebookId: 'kaic-dev', Name: 'Disk task', State: 'stopped', EnableVolume: true }] } }),
+    '/api/dev/action': route => route.fulfill({ json: { result: { Results: [{ Return: true }] } } }),
+  });
+  await page.locator('[data-dev-action="delete"]').click();
+  await expect(page.locator('#delete-dev-volume')).not.toBeChecked();
+  await page.locator('#delete-dev-confirm-name').fill('wrong name');
+  await page.locator('#delete-dev-form button[type="submit"]').click();
+  await expect(page.locator('#toast-stack')).toContainText('名称不匹配');
+  expect(writes).toHaveLength(0);
+  await page.locator('#delete-dev-volume').setChecked(deleteDisk);
+  await page.locator('#delete-dev-confirm-name').fill('Disk task');
+  await page.locator('#delete-dev-form button[type="submit"]').click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0].body).toEqual({ selector: 'kaic-dev', action: 'delete', volumeReclaimPolicy: deleteDisk ? 'delete' : 'reclaim' });
+  await expect(page.locator('#delete-dev-modal')).not.toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('cancelling developer deletion leaves resources untouched and resets disk deletion on reopen', async ({ page }) => {
+  const { writes } = await setup(page, {
+    '/api/dev': route => route.fulfill({ json: { Notebooks: [{ NotebookId: 'kaic-dev', Name: 'Disk task', State: 'stopped', EnableVolume: true }] } }),
+  });
+  await page.locator('[data-dev-action="delete"]').click();
+  await page.locator('#delete-dev-volume').check();
+  await page.locator('#delete-dev-modal button[data-close-modal]').first().click();
+  await page.locator('[data-dev-action="delete"]').click();
+  await expect(page.locator('#delete-dev-volume')).not.toBeChecked();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#delete-dev-modal')).not.toBeVisible();
+  expect(writes).toHaveLength(0);
+});
+
+test('developer form submits shared memory and a new persistent disk from a template', async ({ page }) => {
+  const records = structuredClone(templates);
+  Object.assign(records[0].variables, { EnableCustomShareMemory: true, ShareMemory: 8, EnableVolume: true, VolumeConfig: { VolumeType: 'ESSD_PL0', VolumeSize: 100 } });
+  const { writes, errors } = await setup(page, {}, records);
+  await page.locator('.nav-item[data-page="templates"]').click();
+  await page.locator('[data-use-template="saved-dev"]').click();
+  await expect(page.locator('#dev-share-memory')).toHaveValue('8');
+  await expect(page.locator('#dev-volume-size')).toHaveValue('100');
+  await page.locator('#dev-share-memory').fill('4');
+  await page.locator('#dev-volume-size').fill('200');
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#submit-create').click();
+  await expect.poll(() => writes.some(x => x.path === '/api/dev/create')).toBe(true);
+  const payload = writes.find(x => x.path === '/api/dev/create').body.variables;
+  expect(payload.ShareMemory).toBe(4);
+  expect(payload.VolumeConfig).toEqual({ VolumeType: 'ESSD_PL0', VolumeSize: 200 });
+  expect(errors).toEqual([]);
+});
+
+test('training form preserves RDMA and TensorBoard settings and logs mount during edits', async ({ page }) => {
+  const records = structuredClone(templates);
+  Object.assign(records[1].variables, { EnableRDMADepsCheck: true, RDMADepsCheckConfig: { CheckTiming: 'BeforeRunning', MaxCheckTime: 2 }, SupportTensorboard: true, TensorboardHoldingTimeHours: 48 });
+  records[1].variables.StorageConfigs[0].MountType = 'Tensorboard';
+  const { writes, errors } = await setup(page, {}, records);
+  await page.locator('.nav-item[data-page="templates"]').click();
+  await page.locator('[data-use-template="saved-train"]').click();
+  await expect(page.locator('#train-rdma-minutes')).toHaveValue('2');
+  await expect(page.locator('#train-tensorboard-hours')).toHaveValue('48');
+  await expect(page.locator('[data-train-storage-type]').first()).toHaveValue('Tensorboard');
+  await page.locator('#train-rdma-minutes').fill('3');
+  await page.locator('#train-tensorboard-hours').fill('72');
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#submit-create').click();
+  await expect.poll(() => writes.some(x => x.path === '/api/train/create')).toBe(true);
+  const payload = writes.find(x => x.path === '/api/train/create').body.variables;
+  expect(payload.RDMADepsCheckConfig).toEqual({ CheckTiming: 'BeforeRunning', MaxCheckTime: 3 });
+  expect(payload.TensorboardHoldingTimeHours).toBe(72);
+  expect(payload.StorageConfigs[0].MountType).toBe('Tensorboard');
+  expect(errors).toEqual([]);
+});
+
+test('training detail shows the RDMA check and TensorBoard retention returned by the platform', async ({ page }) => {
+  await setup(page, { '/api/train/detail': route => route.fulfill({ json: {
+    item: { TrainJobId: 'job-1', TrainJobName: 'test-job', JobStatus: { Status: 'running' } },
+    detail: { TrainJobId: 'job-1', TrainJobName: 'test-job', Roles: [], StorageConfigs: [], EnableRDMADepsCheck: true, RDMADepsCheckConfig: { CheckTiming: 'BeforeRunning', MaxCheckTime: 2 }, SupportTensorboard: true, TensorboardStatus: { HoldingTimeHours: 48 } },
+    monitor: { available: false },
+  } }) });
+  await page.locator('.nav-item[data-page="train"]').click();
+  await page.locator('[data-train-detail]').first().click();
+  await expect(page.locator('#train-detail-content')).toContainText('最长 2 分钟');
+  await expect(page.locator('#train-detail-content')).toContainText('保留 48 小时');
+});
+
 test('a completed image save preserves the newly opened dialog and its draft', async ({ page }) => {
   let pending;
   const { writes, errors } = await setup(page, {

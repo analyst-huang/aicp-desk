@@ -466,6 +466,7 @@ aicp gui --port 18080
 - 基本信息、描述与系统资源所属项目。
 - 官方、自定义或第三方镜像。
 - 资源组、开发队列、CPU、内存、GPU 与固定节点。
+- 自定义共享内存与持久化云盘性能等级、容量；存为模板后会保留配置，并在再次创建时申请新云盘。
 - KPFS/KS3 挂载、容器内路径和协议。
 - SSH、公网 EIP、自定义服务端口。
 - 环境变量、权限和自动保存镜像。
@@ -594,6 +595,10 @@ aicp dev stop DEV_NAME_OR_ID --yes
 aicp dev stop DEV_NAME_OR_ID --force --yes
 aicp dev delete DEV_NAME_OR_ID --yes
 ```
+
+删除开发机时默认保留关联云盘。GUI 删除对话框提供“同步删除关联云盘”选项；命令行可使用 `--volume-policy delete` 明确删除云盘及其中的数据，或使用默认的 `--volume-policy reclaim` 保留云盘。KPFS / KS3 挂载存储不受此选项影响。
+
+训练任务创建表单支持运行前 RDMA 依赖检查（最长 1–5 分钟）及 TensorBoard 保留时长。使用 TensorBoard 时，在挂载配置中选择“TensorBoard 日志”用途；这些设置也会随训练模板保存。
 
 ### 训练任务
 
@@ -833,5 +838,5 @@ examples/   开发机与训练任务 JSON 示例
 - `--json` 与模板输出默认隐藏密码、Token、Secret 和环境变量值。
 - `template show --show-sensitive` 会显示完整模板，请谨慎使用。
 - 模板可能包含环境变量或仓库凭据；不要提交到 Git。
-- 删除开发机或训练任务不可撤销，且不会删除其挂载的外部存储；运行中的资源需要先停止。GUI 使用确认框和名称输入双重确认，CLI 需要 `--yes`。
+- 删除开发机或训练任务不可撤销，KPFS / KS3 等挂载存储会保留；开发机关联云盘默认保留，只有明确选择同步删除时才删除。运行中的资源需要先停止。GUI 要求确认并输入名称，CLI 需要确认或显式使用 `--yes`。
 - `aicp gpu` 和 GUI 的 GPU 容量页只执行查询，不会创建、启动、停止或修改任何云端资源。

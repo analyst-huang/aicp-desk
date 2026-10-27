@@ -29,7 +29,7 @@ test('logout clears cookies and origin storage, while forget deletes only the de
   assert.equal((await browser.logout()).savedPasswordsKept, true);
   assert.equal(await readFile(marker, 'utf8'), 'kept');
   assert.equal(sent[0][0], 'Network.clearBrowserCookies');
-  assert.deepEqual(sent.slice(1).map(([, params]) => params.origin), ['https://aicp.console.ksyun.com', 'https://passport.ksyun.com']);
+  assert.deepEqual(sent.slice(1).map(([, params]) => params.origin), ['https://ksp.console.ksyun.com', 'https://aicp.console.ksyun.com', 'https://passport.ksyun.com']);
   assert.equal(closed, 1);
   assert.equal((await browser.loginState()).disabled, true);
   browser.closeActiveBrowser = async () => {};

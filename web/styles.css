@@ -144,8 +144,8 @@ tbody tr:hover { background: #fcfbfe; }
 .status { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; background: #f0eff4; color: #6f7486; }
 .status:before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .status.running, .status.succeed { color: var(--green); background: var(--mint); }
-.status.pending, .status.deploying, .status.submit, .status.starting { color: var(--orange); background: var(--amber); }
-.status.failed { color: var(--red); background: #ffe8ed; }
+.status.pending, .status.deploying, .status.submit, .status.starting, .status.start, .status.image_saving { color: var(--orange); background: var(--amber); }
+.status.failed, .status.submit_failed { color: var(--red); background: #ffe8ed; }
 .actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .link-action { border: 0; background: transparent; color: var(--purple); font-size: 11px; padding: 4px; font-weight: 650; }
 .link-action.stop { color: var(--red); }

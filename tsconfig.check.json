@@ -17,6 +17,8 @@
   },
   "files": [
     "lib/contracts.mjs",
+    "lib/console.mjs",
+    "lib/domain/deletion.mjs",
     "lib/errors.mjs",
     "web/core/request.js",
     "web/models/dev-form.js",

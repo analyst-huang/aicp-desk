@@ -354,6 +354,15 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
     }
   }
 
+  function updateExtendedFields() {
+    for (const [toggle, fields] of [['dev-custom-share-memory', 'dev-share-memory-fields'], ['dev-enable-volume', 'dev-volume-fields']]) {
+      const enabled = $(`#${toggle}`).checked;
+      $(`#${fields}`).disabled = !enabled;
+      $(`#${fields}`).classList.toggle('hidden', !enabled);
+    }
+    $('#dev-share-memory').max = $('#dev-memory').value;
+  }
+
   function fillDevFields(variables) {
     const fields = fromVariables(variables);
     renderProjectOptions(fields.project);
@@ -378,6 +387,12 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
     $("#dev-gpu-number").value = fields.gpuNumber;
     $("#dev-cpu").value = fields.cpu;
     $("#dev-memory").value = fields.memory;
+    $('#dev-custom-share-memory').checked = fields.customShareMemory;
+    $('#dev-share-memory').value = fields.shareMemory;
+    $('#dev-enable-volume').checked = fields.enableVolume;
+    $('#dev-volume-type').value = fields.volumeType;
+    $('#dev-volume-size').value = fields.volumeSize;
+    updateExtendedFields();
     $("#dev-affinity-cpu").checked = fields.affinityCpu;
     $("#dev-affinity-gpu").checked = fields.affinityGpu;
     const affinityIp = fields.affinityIp;
@@ -428,6 +443,11 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
       gpuNumber: $("#dev-gpu-number").value,
       cpu: $("#dev-cpu").value,
       memory: $("#dev-memory").value,
+      customShareMemory: $('#dev-custom-share-memory').checked,
+      shareMemory: $('#dev-share-memory').value,
+      enableVolume: $('#dev-enable-volume').checked,
+      volumeType: $('#dev-volume-type').value,
+      volumeSize: $('#dev-volume-size').value,
       queueShare: $("#dev-queue-share").checked,
       enableSsh: $("#dev-enable-ssh").checked,
       sshPort: $("#dev-ssh-port").value,
@@ -477,6 +497,7 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
   }
 
   async function handleChange(event) {
+    if (['dev-custom-share-memory', 'dev-enable-volume', 'dev-memory'].includes(event.target.id)) updateExtendedFields();
     if (event.target.id === 'dev-allocation-id') event.target.dataset.unavailableValue = '';
     if (event.target.name === "dev-image-source") renderDevImageMode();
     if (event.target.id === "dev-image-select") renderImageDetail();

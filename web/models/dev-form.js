@@ -15,6 +15,8 @@ export const defaults = (region) => ({
   GPUNumber: 0,
   CpuNum: 8,
   Memory: 16,
+  EnableCustomShareMemory: false,
+  EnableVolume: false,
   AccessType: "Creator",
   StorageConfigs: [],
   EnableSsh: false,
@@ -72,6 +74,12 @@ export function toVariables(fields, base, { allowIncomplete = false } = {}) {
   variables.GPUNumber = variables.GPUType ? Number(fields.gpuNumber || 0) : 0;
   variables.CpuNum = Number(fields.cpu || 0);
   variables.Memory = Number(fields.memory || 0);
+  variables.EnableCustomShareMemory = fields.customShareMemory;
+  if (fields.customShareMemory) variables.ShareMemory = Number(fields.shareMemory);
+  else delete variables.ShareMemory;
+  variables.EnableVolume = fields.enableVolume;
+  if (fields.enableVolume) variables.VolumeConfig = { ...variables.VolumeConfig, VolumeType: fields.volumeType.trim(), VolumeSize: Number(fields.volumeSize) };
+  else delete variables.VolumeConfig;
   variables.AccessType = fields.queueShare ? "QueueMember" : "Creator";
   variables.Envs = fields.envs;
   variables.StorageConfigs = fields.storageConfigs;
@@ -129,6 +137,11 @@ export function fromVariables(variables) {
     gpuNumber: variables.GPUNumber ?? 0,
     cpu: variables.CpuNum ?? 8,
     memory: variables.Memory ?? 16,
+    customShareMemory: Boolean(variables.EnableCustomShareMemory),
+    shareMemory: variables.ShareMemory ?? 0,
+    enableVolume: Boolean(variables.EnableVolume),
+    volumeType: variables.VolumeConfig?.VolumeType || '',
+    volumeSize: variables.VolumeConfig?.VolumeSize ?? 100,
     queueShare: variables.AccessType === 'QueueMember',
     envs: variables.Envs || [],
     storageConfigs: variables.StorageConfigs || [],

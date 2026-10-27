@@ -138,7 +138,7 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
 
   function renderTrainStorageRows(items = []) {
     const container = $("#train-storage-rows");
-    renderRepeater(container, items, (item) => `<div class="repeater-row storage train-storage"><label>存储配置<select data-train-storage-id>${trainStorageOptions(item.StorageConfigId)}</select></label><label>挂载用途<select data-train-storage-type><option value="DataSet" ${item.MountType === "DataSet" ? "selected" : ""}>数据集</option><option value="Output" ${item.MountType === "Output" ? "selected" : ""}>输出</option></select></label><label>挂载路径<input data-train-storage-path value="${escapeHtml(item.MountPath || "")}" placeholder="/data"></label><label>子路径<input data-train-storage-subpath value="${escapeHtml(item.StorageSubPath || "")}" placeholder="可留空"></label><label>协议<input data-train-storage-protocol value="${escapeHtml(item.MountProtocol || "")}" placeholder="自动"></label><button type="button" class="icon-button" data-remove-row aria-label="删除">×</button></div>`, "暂未配置挂载");
+    renderRepeater(container, items, (item) => `<div class="repeater-row storage train-storage"><label>存储配置<select data-train-storage-id>${trainStorageOptions(item.StorageConfigId)}</select></label><label>挂载用途<select data-train-storage-type><option value="DataSet" ${item.MountType === "DataSet" ? "selected" : ""}>数据集</option><option value="Output" ${item.MountType === "Output" ? "selected" : ""}>输出</option><option value="Code" ${item.MountType === "Code" ? "selected" : ""}>代码</option><option value="Tensorboard" ${item.MountType === "Tensorboard" ? "selected" : ""}>TensorBoard 日志</option></select></label><label>挂载路径<input data-train-storage-path value="${escapeHtml(item.MountPath || "")}" placeholder="/data"></label><label>子路径<input data-train-storage-subpath value="${escapeHtml(item.StorageSubPath || "")}" placeholder="可留空"></label><label>协议<input data-train-storage-protocol value="${escapeHtml(item.MountProtocol || "")}" placeholder="自动"></label><button type="button" class="icon-button" data-remove-row aria-label="删除">×</button></div>`, "暂未配置挂载");
     $$('[data-train-storage-id]', container).forEach((select, index) => {
       const id = items[index].StorageConfigId;
       retainSelectValue(select, id, `挂载配置“${id}”当前不可用，请重新选择或删除此挂载`);
@@ -185,6 +185,14 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
     }
   }
 
+  function updateExtendedFields() {
+    for (const [toggle, fields] of [['train-rdma-check', 'train-rdma-fields'], ['train-tensorboard', 'train-tensorboard-fields']]) {
+      const enabled = $(`#${toggle}`).checked;
+      $(`#${fields}`).disabled = !enabled;
+      $(`#${fields}`).classList.toggle('hidden', !enabled);
+    }
+  }
+
   function fillTrainFields(variables) {
     const fields = fromVariables(variables);
     state.otherRolesUseGpu = (variables.Roles ?? []).slice(1).some(role => role.ResourceConfig?.GPUType);
@@ -203,6 +211,12 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
     $("#train-gpu-number").value = fields.gpuNumber;
     $("#train-cpu").value = fields.cpu;
     $("#train-memory").value = fields.memory;
+    $('#train-rdma-check').checked = fields.rdmaCheck;
+    $('#train-rdma-timing').value = fields.rdmaTiming;
+    $('#train-rdma-minutes').value = fields.rdmaMinutes;
+    $('#train-tensorboard').checked = fields.tensorboard;
+    $('#train-tensorboard-hours').value = fields.tensorboardHours;
+    updateExtendedFields();
     renderTrainStorageRows(fields.storageConfigs);
     $("#train-command-label").textContent = String(fields.framework).toLowerCase() === "ray" ? "入口命令" : "运行命令";
     $("#train-command").value = fields.command;
@@ -235,6 +249,11 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
       gpuNumber: $("#train-gpu-number").value,
       cpu: $("#train-cpu").value,
       memory: $("#train-memory").value,
+      rdmaCheck: $('#train-rdma-check').checked,
+      rdmaTiming: $('#train-rdma-timing').value,
+      rdmaMinutes: $('#train-rdma-minutes').value,
+      tensorboard: $('#train-tensorboard').checked,
+      tensorboardHours: $('#train-tensorboard-hours').value,
       jobCpu: $("#train-job-cpu").checked,
       command: $("#train-command").value,
       storageConfigs: readTrainStorageRows(),
@@ -267,6 +286,7 @@ export function createFeature({ appState, refreshOptions, ui, signal }) {
   function handleInput() { return false; }
 
   async function handleChange(event) {
+    if (['train-rdma-check', 'train-tensorboard'].includes(event.target.id)) updateExtendedFields();
     if (event.target.id === "train-resource-pool") renderTrainQueues();
     if (event.target.id === "train-queue") renderTrainGpuTypes();
     if (event.target.id === "train-gpu-type") {

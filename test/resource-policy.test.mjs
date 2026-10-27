@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { resourceCapabilities } from '../lib/domain/resource-policy.mjs';
 import { AicpService } from '../lib/service.mjs';
 
-const active = { dev: ['running', 'starting', 'pending', 'deploying'], train: ['running', 'submit', 'pending', 'deploying', 'restarting', 'succeed_holding', 'failed_holding'] };
+const active = { dev: ['running', 'starting', 'submit', 'start', 'pending', 'deploying', 'image_saving'], train: ['running', 'submit', 'pending', 'deploying', 'restarting', 'succeed_holding', 'failed_holding'] };
 for (const kind of ['dev', 'train']) test(`${kind} policy and actual service writes agree across every known and unknown state`, async () => {
-  for (const state of [...active[kind], 'stopped', 'failed', 'succeed', 'stopping', 'future-status', '', undefined]) {
+  for (const state of [...active[kind], 'submit_failed', 'stopped', 'failed', 'succeed', 'stopping', 'future-status', '', undefined]) {
     const writes = [];
     const item = kind === 'dev' ? { NotebookId: 'kaic-id', State: state } : { TrainJobId: 'job-id', JobStatus: { Status: state } };
     const write = action => async () => { writes.push(action); return { Results: [{ Return: true }] }; };
@@ -16,7 +16,7 @@ for (const kind of ['dev', 'train']) test(`${kind} policy and actual service wri
     }, {}, {});
     const policy = resourceCapabilities(kind, state);
     assert.equal(policy.canStop, active[kind].includes(state));
-    assert.equal(policy.canStart, ['stopped', 'failed', 'succeed'].includes(state));
+    assert.equal(policy.canStart, ['stopped', 'failed', 'succeed', ...(kind === 'dev' ? ['submit_failed'] : [])].includes(state));
     assert.equal(policy.canDelete, policy.canStart);
     for (const action of ['start', 'stop', 'delete']) {
       writes.length = 0;

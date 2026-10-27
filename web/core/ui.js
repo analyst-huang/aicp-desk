@@ -42,7 +42,7 @@ export function createFeature({ appState, signal }) {
       running: "运行中", stopped: "已停止", starting: "启动中", pending: "排队中",
       deploying: "部署中", submit: "创建中", succeed: "成功", failed: "失败",
       stopping: "停止中", restarting: "重启中", image_saving: "镜像保存中", succeed_holding: "成功·保留中",
-      failed_holding: "失败·保留中",
+      failed_holding: "失败·保留中", start: "启动中", submit_failed: "创建失败",
     };
     return labels[String(status).toLowerCase()] || status || "未知";
   }

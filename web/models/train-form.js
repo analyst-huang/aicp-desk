@@ -27,6 +27,7 @@ export const defaults = (region) => ({
     IsChiefRole: false,
   }],
   EnableDeviceHealthCheck: false,
+  EnableRDMADepsCheck: false,
 });
 
 /** Pure form conversion: detached output, unknown advanced JSON fields retained.
@@ -67,6 +68,14 @@ export function toVariables(fields, base) {
   variables.Roles[0].ResourceConfig.Memory = Number(fields.memory || 0);
   variables.JobRunOnCPU = fields.jobCpu;
   variables.StorageConfigs = fields.storageConfigs;
+  variables.SupportTensorboard = fields.tensorboard;
+  if (fields.tensorboard) variables.TensorboardHoldingTimeHours = Number(fields.tensorboardHours);
+  else delete variables.TensorboardHoldingTimeHours;
+  variables.EnableRDMADepsCheck = fields.rdmaCheck;
+  if (fields.rdmaCheck) variables.RDMADepsCheckConfig = {
+    ...variables.RDMADepsCheckConfig, CheckTiming: fields.rdmaTiming, MaxCheckTime: Number(fields.rdmaMinutes),
+  };
+  else delete variables.RDMADepsCheckConfig;
   if (String(variables.Framework).toLowerCase() === "ray") {
     variables.EntryPointCommand = fields.command;
     delete variables.Roles[0].RunCommand;
@@ -103,6 +112,11 @@ export function fromVariables(variables) {
     memory: resource.Memory ?? 16,
     jobCpu: variables.JobRunOnCPU ?? !(variables.Roles ?? []).some(item => item.ResourceConfig?.GPUType),
     storageConfigs: variables.StorageConfigs || [],
+    tensorboard: Boolean(variables.SupportTensorboard),
+    tensorboardHours: variables.TensorboardHoldingTimeHours ?? 24,
+    rdmaCheck: Boolean(variables.EnableRDMADepsCheck),
+    rdmaTiming: variables.RDMADepsCheckConfig?.CheckTiming || 'BeforeRunning',
+    rdmaMinutes: variables.RDMADepsCheckConfig?.MaxCheckTime ?? 1,
     command: String(variables.Framework).toLowerCase() === 'ray' ? variables.EntryPointCommand || '' : role.RunCommand || '',
   });
 }

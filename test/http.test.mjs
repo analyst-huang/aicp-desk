@@ -69,6 +69,22 @@ test("HTTP create validates before dispatch and returns the existing response sh
   assert.deepEqual(calls, [dev]);
 });
 
+test('HTTP developer deletion forwards explicit disk policies and rejects malformed policies', async t => {
+  const writes = [];
+  const { request } = await fixture(t, { deleteNotebooks: async (ids, region, options) => {
+    writes.push({ ids, options }); return { Results: [{ Return: true }] };
+  } });
+  for (const policy of [undefined, 'delete']) {
+    const result = await request('/api/dev/action', { selector: 'dev-1', action: 'delete', volumeReclaimPolicy: policy });
+    assert.equal(result.status, 200);
+  }
+  assert.deepEqual(writes.map(x => x.options.volumeReclaimPolicy), ['reclaim', 'delete']);
+  for (const policy of ['invalid', null, true, {}, []]) {
+    assert.equal((await request('/api/dev/action', { selector: 'dev-1', action: 'delete', volumeReclaimPolicy: policy })).status, 400);
+  }
+  assert.equal(writes.length, 2);
+});
+
 test('GUI works through a different local TCP port while enforcing origin and token checks', async t => {
   const { url, calls } = await fixture(t);
   const sockets = new Set();

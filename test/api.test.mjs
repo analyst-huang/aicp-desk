@@ -312,7 +312,7 @@ test("native delete mutations receive notebook IDs and queue-job requests", asyn
   const api = new AicpApi(browser, { region: "region-1" });
   await api.deleteNotebooks(["kaic-dev"]);
   await api.deleteTrainJobs([{ TrainJobId: "kaic-job", ResourcePoolId: "pool" }]);
-  assert.deepEqual(calls[0].variables, { Region: "region-1", NotebookIds: ["kaic-dev"] });
+  assert.deepEqual(calls[0].variables, { Region: "region-1", DeleteNotebookReqs: [{ NotebookId: "kaic-dev", VolumeReclaimPolicy: "reclaim" }] });
   assert.deepEqual(calls[1].variables, { Region: "region-1", DeleteQueueJobRequests: [{ JobName: "kaic-job", ResourcePoolId: "pool" }] });
 });
 
